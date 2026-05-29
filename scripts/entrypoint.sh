@@ -92,7 +92,7 @@ start_dashboard() {
     args+=(--insecure)
   fi
 
-  if is_true "${HERMES_DASHBOARD_SKIP_BUILD:-false}"; then
+  if is_true "${HERMES_DASHBOARD_SKIP_BUILD:-true}"; then
     args+=(--skip-build)
   fi
 

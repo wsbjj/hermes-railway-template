@@ -1,6 +1,12 @@
+FROM node:22-bookworm-slim AS node
+
+
 FROM python:3.11-slim-bookworm AS builder
 
 ARG HERMES_GIT_REF=v2026.5.29
+
+COPY --from=node /usr/local /usr/local
+ENV PATH="/usr/local/bin:${PATH}"
 
 RUN apt-get update -o Acquire::Retries=3 \
   && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -23,8 +29,15 @@ ENV PATH="/opt/venv/bin:${PATH}"
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 RUN pip install --no-cache-dir websockets -e "/opt/hermes-agent[messaging,cron,cli,pty,web]"
 
+RUN cd /opt/hermes-agent/web \
+  && npm ci \
+  && npm run build \
+  && rm -rf node_modules /root/.npm
+
 
 FROM python:3.11-slim-bookworm
+
+COPY --from=node /usr/local /usr/local
 
 RUN apt-get update -o Acquire::Retries=3 \
   && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -32,12 +45,10 @@ RUN apt-get update -o Acquire::Retries=3 \
     curl \
     git \
     gh \
-    nodejs \
-    npm \
     tini \
   && rm -rf /var/lib/apt/lists/*
 
-ENV PATH="/opt/venv/bin:${PATH}" \
+ENV PATH="/opt/venv/bin:/usr/local/bin:${PATH}" \
   PYTHONUNBUFFERED=1 \
   HERMES_HOME=/data/.hermes \
   HOME=/data

@@ -220,6 +220,7 @@ CUSTOM_API_KEY=你的APIKey
 | `HERMES_DASHBOARD_PORT` | 可选 | `9119` | Dashboard 本地备用端口；Railway 上优先使用 `PORT`。 |
 | `HERMES_DASHBOARD_TUI` | 可选 | `true` | 是否开启 Dashboard 的网页聊天页。 |
 | `HERMES_DASHBOARD_INSECURE` | 可选 | `false` | 跳过 Dashboard OAuth gate；只允许在 dev 测试环境短期使用。 |
+| `HERMES_DASHBOARD_SKIP_BUILD` | 可选 | `true` | 默认使用镜像里预构建好的 Dashboard 静态资源，避免 Railway 启动时重新跑 Vite 构建。需要运行时强制重建时才设为 `false`。 |
 | `HERMES_DASHBOARD_PUBLIC_URL` | 公开 Dashboard 建议填 | Railway 公网 URL | OAuth 回调使用的公开 Dashboard 地址。 |
 | `HERMES_DASHBOARD_OAUTH_CLIENT_ID` | 公开 Dashboard 建议填 | Nous Portal client id | 启用官方 OAuth gate，避免公网暴露 `.env`。 |
 
@@ -400,6 +401,8 @@ STATUS_PAGE_ENABLED=false
 
 Hermes 官方 Web Dashboard 是真正的网页 UI。启用 `--tui` 后，Dashboard 里会出现 Chat 页，可以在浏览器里直接和 Hermes 对话。
 
+这个镜像会在 Docker build 阶段用 Node.js 22 预构建 Dashboard 前端。容器启动时默认传入 `--skip-build`，所以 Railway Deploy Logs 不应该再出现运行时 `npm run build`。如果你看到 Vite 提示 `Node.js 18.20.4` 不满足要求，通常说明 Railway 还没有部署到包含本修复的 `dev` 分支最新提交，或者服务没有使用根目录 Dockerfile 重新构建。
+
 最小 dev 测试配置：
 
 ```env
@@ -430,6 +433,7 @@ QQ_ALLOWED_USERS=你的测试openid
 - `HERMES_DASHBOARD_INSECURE=true` 会跳过 OAuth gate，不要在 production 长期开启。
 - production 如果要公开 Dashboard，建议使用 `HERMES_DASHBOARD_OAUTH_CLIENT_ID` 和 `HERMES_DASHBOARD_PUBLIC_URL` 配置官方 OAuth。
 - 如果没有 OAuth，又没有设置 `HERMES_DASHBOARD_INSECURE=true`，Dashboard 在公网绑定时会拒绝启动，这是官方的 fail-closed 行为。
+- `HERMES_DASHBOARD_SKIP_BUILD` 默认是 `true`。只有你明确想在容器启动时重新跑 `npm install && npm run build`，才设置为 `false`。
 
 ## 修改模型或 provider
 
@@ -507,6 +511,27 @@ docker run --rm \
 - `HERMES_GIT_REF` 写错，GitHub 拉不到 tag 或 commit。
 - Railway 没有使用 Dockerfile 构建。
 - 上游 Hermes 依赖临时下载失败。
+
+### Dashboard 启动时报 Vite / Node 版本错误
+
+如果 Deploy Logs 里出现：
+
+```text
+You are using Node.js 18.20.4. Vite requires Node.js version 20.19+ or 22.12+.
+```
+
+说明 Dashboard 前端在容器启动阶段被重新构建了，而且运行时 Node 版本不满足 Vite 7 要求。当前 `dev` 分支的镜像已经改为：
+
+- Docker build 阶段使用 Node.js 22 预构建 Dashboard。
+- 容器启动 `hermes dashboard` 时默认带 `--skip-build`。
+- 运行时镜像也带 Node.js 22，方便你手动排查。
+
+处理方式：
+
+1. 确认 Railway `dev` 环境的 source branch 是 GitHub `dev`。
+2. 在 Railway 里点 `Redeploy`，让它重新按最新 Dockerfile 构建。
+3. 确认没有把 `HERMES_DASHBOARD_SKIP_BUILD` 设置为 `false`。
+4. 如果之前的失败部署留下了缓存，优先触发一次干净重建。
 
 ### 启动时报 provider 错误
 

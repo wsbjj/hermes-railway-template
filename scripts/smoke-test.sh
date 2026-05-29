@@ -192,7 +192,7 @@ run_dashboard_case() {
     "$@" "$ROOT_DIR/scripts/entrypoint.sh" > "$tmp/out.txt" 2>&1
 
   grep -q "Starting Hermes dashboard on 0.0.0.0:19091" "$tmp/out.txt"
-  grep -q "fake hermes dashboard --host 0.0.0.0 --port 19091 --no-open --tui --insecure" "$tmp/out.txt"
+  grep -q "fake hermes dashboard --host 0.0.0.0 --port 19091 --no-open --tui --insecure --skip-build" "$tmp/out.txt"
   grep -q "Starting Hermes gateway" "$tmp/out.txt"
   grep -q "fake hermes gateway" "$tmp/out.txt"
   if grep -q "Starting status page" "$tmp/out.txt"; then
@@ -201,6 +201,36 @@ run_dashboard_case() {
     exit 1
   fi
   echo "$name OK"
+}
+
+run_dashboard_rebuild_case() {
+  local tmp
+  tmp="$(new_case_dir)"
+
+  PATH="$tmp/bin:$PATH" \
+    HERMES_HOME="$tmp/home/.hermes" \
+    HOME="$tmp/home" \
+    TERMINAL_CWD="$tmp/workspace" \
+    PORT=19093 \
+    HERMES_DASHBOARD=1 \
+    HERMES_DASHBOARD_INSECURE=true \
+    HERMES_DASHBOARD_SKIP_BUILD=false \
+    HERMES_INFERENCE_PROVIDER=custom \
+    OPENAI_BASE_URL=https://api.example.com/v1 \
+    OPENAI_API_KEY=test-key \
+    QQ_APP_ID=app-id \
+    QQ_CLIENT_SECRET=secret \
+    QQ_ALLOWED_USERS=openid_a \
+    "$ROOT_DIR/scripts/entrypoint.sh" > "$tmp/out.txt" 2>&1
+
+  grep -q "Starting Hermes dashboard on 0.0.0.0:19093" "$tmp/out.txt"
+  grep -q "fake hermes dashboard --host 0.0.0.0 --port 19093 --no-open --tui --insecure" "$tmp/out.txt"
+  if grep -q -- "--skip-build" "$tmp/out.txt"; then
+    echo "Dashboard rebuild mode unexpectedly skipped build" >&2
+    cat "$tmp/out.txt" >&2
+    exit 1
+  fi
+  echo "Dashboard rebuild opt-out OK"
 }
 
 run_dashboard_only_case() {
@@ -222,7 +252,7 @@ run_dashboard_only_case() {
     "$ROOT_DIR/scripts/entrypoint.sh" > "$tmp/out.txt" 2>&1
 
   grep -q "Starting Hermes dashboard on 0.0.0.0:19092" "$tmp/out.txt"
-  grep -q "fake hermes dashboard --host 0.0.0.0 --port 19092 --no-open --tui --insecure" "$tmp/out.txt"
+  grep -q "fake hermes dashboard --host 0.0.0.0 --port 19092 --no-open --tui --insecure --skip-build" "$tmp/out.txt"
   grep -q "Gateway disabled" "$tmp/out.txt"
   if grep -q "fake hermes gateway" "$tmp/out.txt"; then
     echo "Dashboard-only mode unexpectedly started gateway" >&2
@@ -306,5 +336,7 @@ run_dashboard_case "Dashboard with QQ gateway" env \
   QQ_APP_ID=app-id \
   QQ_CLIENT_SECRET=secret \
   QQ_ALLOWED_USERS=openid_a
+
+run_dashboard_rebuild_case
 
 run_dashboard_only_case
