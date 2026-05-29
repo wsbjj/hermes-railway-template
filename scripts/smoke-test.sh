@@ -262,6 +262,14 @@ run_dashboard_only_case() {
   echo "Dashboard-only web chat OK"
 }
 
+run_dockerfile_tui_prebuild_case() {
+  grep -q "ui-tui" "$ROOT_DIR/Dockerfile"
+  grep -q "hermes_cli/tui_dist" "$ROOT_DIR/Dockerfile"
+  grep -q "hermes-dashboard-insecure-public-ws.patch" "$ROOT_DIR/Dockerfile"
+  grep -q "allow_public" "$ROOT_DIR/patches/hermes-dashboard-insecure-public-ws.patch"
+  echo "Dockerfile TUI prebuild OK"
+}
+
 run_success "QQ InfiniAI via OPENAI_BASE_URL" env \
   HERMES_INFERENCE_PROVIDER=custom \
   OPENAI_BASE_URL=https://cloud.infini-ai.com/maas/v1 \
@@ -340,3 +348,5 @@ run_dashboard_case "Dashboard with QQ gateway" env \
 run_dashboard_rebuild_case
 
 run_dashboard_only_case
+
+run_dockerfile_tui_prebuild_case

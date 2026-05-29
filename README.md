@@ -401,7 +401,7 @@ STATUS_PAGE_ENABLED=false
 
 Hermes 官方 Web Dashboard 是真正的网页 UI。启用 `--tui` 后，Dashboard 里会出现 Chat 页，可以在浏览器里直接和 Hermes 对话。
 
-这个镜像会在 Docker build 阶段用 Node.js 22 预构建 Dashboard 前端。容器启动时默认传入 `--skip-build`，所以 Railway Deploy Logs 不应该再出现运行时 `npm run build`。如果你看到 Vite 提示 `Node.js 18.20.4` 不满足要求，通常说明 Railway 还没有部署到包含本修复的 `dev` 分支最新提交，或者服务没有使用根目录 Dockerfile 重新构建。
+这个镜像会在 Docker build 阶段用 Node.js 22 预构建 Dashboard 前端和内嵌聊天用的 Hermes TUI。容器启动时默认传入 `--skip-build`，所以 Railway Deploy Logs 不应该再出现运行时 `npm run build`。如果你看到 Vite 提示 `Node.js 18.20.4` 不满足要求，通常说明 Railway 还没有部署到包含本修复的 `dev` 分支最新提交，或者服务没有使用根目录 Dockerfile 重新构建。
 
 最小 dev 测试配置：
 
@@ -430,10 +430,11 @@ QQ_ALLOWED_USERS=你的测试openid
 公网安全提醒：
 
 - Dashboard 会读写 `/data/.hermes/.env`，里面可能有 API key、token、secret。
-- `HERMES_DASHBOARD_INSECURE=true` 会跳过 OAuth gate，不要在 production 长期开启。
+- `HERMES_DASHBOARD_INSECURE=true` 会跳过 OAuth gate，并允许公网浏览器连接 Dashboard 的聊天 WebSocket；不要在 production 长期开启。
 - production 如果要公开 Dashboard，建议使用 `HERMES_DASHBOARD_OAUTH_CLIENT_ID` 和 `HERMES_DASHBOARD_PUBLIC_URL` 配置官方 OAuth。
 - 如果没有 OAuth，又没有设置 `HERMES_DASHBOARD_INSECURE=true`，Dashboard 在公网绑定时会拒绝启动，这是官方的 fail-closed 行为。
 - `HERMES_DASHBOARD_SKIP_BUILD` 默认是 `true`。只有你明确想在容器启动时重新跑 `npm install && npm run build`，才设置为 `false`。
+- Chat 页显示 `[session ended]` 时，先刷新页面再试。如果仍然马上结束，检查 Railway Logs 和 `/data/.hermes/config.yaml`，通常是模型配置不完整或当前部署还没有预构建内嵌 TUI。
 
 ## 修改模型或 provider
 
@@ -523,6 +524,8 @@ You are using Node.js 18.20.4. Vite requires Node.js version 20.19+ or 22.12+.
 说明 Dashboard 前端在容器启动阶段被重新构建了，而且运行时 Node 版本不满足 Vite 7 要求。当前 `dev` 分支的镜像已经改为：
 
 - Docker build 阶段使用 Node.js 22 预构建 Dashboard。
+- Docker build 阶段同时预构建内嵌聊天 TUI，避免第一次打开 Chat 时临时安装 npm 依赖。
+- `HERMES_DASHBOARD_INSECURE=true` 时同步放行 Dashboard 聊天 WebSocket，适配 Railway dev 环境的公网 URL。
 - 容器启动 `hermes dashboard` 时默认带 `--skip-build`。
 - 运行时镜像也带 Node.js 22，方便你手动排查。
 

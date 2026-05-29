@@ -23,6 +23,9 @@ RUN test -n "${HERMES_GIT_REF}" \
   && git -C /opt/hermes-agent checkout --detach FETCH_HEAD \
   && git -C /opt/hermes-agent submodule update --init --recursive --depth 1
 
+COPY patches/ /tmp/hermes-patches/
+RUN git -C /opt/hermes-agent apply /tmp/hermes-patches/hermes-dashboard-insecure-public-ws.patch
+
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 
@@ -32,6 +35,14 @@ RUN pip install --no-cache-dir websockets -e "/opt/hermes-agent[messaging,cron,c
 RUN cd /opt/hermes-agent/web \
   && npm ci \
   && npm run build \
+  && rm -rf node_modules /root/.npm
+
+RUN cd /opt/hermes-agent/ui-tui \
+  && npm ci \
+  && npm run build \
+  && mkdir -p /opt/hermes-agent/hermes_cli/tui_dist \
+  && cp dist/entry.js /opt/hermes-agent/hermes_cli/tui_dist/entry.js \
+  && cp package.json /opt/hermes-agent/hermes_cli/tui_dist/package.json \
   && rm -rf node_modules /root/.npm
 
 
