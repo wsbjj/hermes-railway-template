@@ -1,283 +1,436 @@
-# Hermes Agent Railway 模板
+# Hermes Agent Railway 自用部署版
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/hermes-railway-template?referralCode=uTN7AS&utm_medium=integration&utm_source=template&utm_campaign=generic)
+这个仓库用于把 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 部署到 Railway。当前用法不是发布 Railway Marketplace 模板，而是你自己在 Railway 里选择 GitHub 仓库 `wsbjj/hermes-railway-template` 部署。
 
-把 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 部署到 Railway，作为带持久化状态的 Worker 服务运行。
+请不要点旧的 Railway Template 页面部署。自用部署入口是：
 
-这个模板只负责 Worker 运行时：初始化和配置都通过 Railway Variables 完成，容器首次启动时会自动引导 Hermes。
-
-## 你会得到什么
-
-- 在 Railway Worker 中运行的 Hermes gateway
-- 首次启动时根据环境变量自动初始化
-- 通过 Railway Volume 持久化 Hermes 状态，挂载路径为 `/data`
-- 支持 Telegram、Discord、Slack、QQ Bot、个人微信 Weixin、企业微信 WeCom 等消息平台
-
-## 工作方式
-
-1. 在 Railway 中配置必需变量。
-2. 首次启动时，入口脚本会在 `/data/.hermes` 下初始化 Hermes。
-3. 后续重启会复用同一份持久化状态。
-4. 容器启动 `hermes gateway`。
-
-## Railway 部署步骤
-
-在 Railway Template Composer 中：
-
-1. 添加一个 Volume，并挂载到 `/data`。
-2. 以 Worker 服务方式部署。
-3. 配置下方列出的环境变量。
-
-模板默认值已经写在 `railway.toml` 中：
-
-- `HERMES_HOME=/data/.hermes`
-- `HOME=/data`
-
-Hermes 终端会话默认工作目录为 `/data/workspace`，该配置会写入 `${HERMES_HOME}/config.yaml`。
-
-## 默认环境变量
-
-模板默认按 Telegram + OpenRouter 场景展示。部署时可先填写这些变量：
-
-```env
-HERMES_GIT_REF="v2026.5.29"
-OPENROUTER_API_KEY=""
-TELEGRAM_BOT_TOKEN=""
-TELEGRAM_ALLOWED_USERS=""
+```text
+Railway Dashboard -> New Project -> Deploy from GitHub repo -> wsbjj/hermes-railway-template
 ```
 
-部署后也可以继续在 Railway 服务的 Variables 中新增或修改变量。
-最新支持的变量和行为以 Hermes 上游文档为准：
+## 这个仓库做什么
 
-- https://github.com/NousResearch/hermes-agent
-- https://github.com/NousResearch/hermes-agent/blob/main/README.md
+- 用 Dockerfile 在 Railway 构建指定版本的 Hermes Agent。
+- 用 Railway Volume 持久化 Hermes 状态，固定挂载到 `/data`。
+- 首次启动时自动创建 `/data/.hermes/config.yaml` 和 `/data/.hermes/.env`。
+- 支持 Telegram、Discord、Slack、QQ Bot、企业微信 WeCom、企业微信回调、个人微信 Weixin。
+- 重点适配你的场景：QQ Bot / 微信 + 无问芯穹 / MiniMax / 自定义 OpenAI 兼容接口。
 
-## 必需运行时变量
+## 快速部署
 
-你至少需要配置一个模型提供方：
+1. 打开 Railway Dashboard。
+2. 点击 `New Project`。
+3. 选择 `Deploy from GitHub repo`。
+4. 选择仓库 `wsbjj/hermes-railway-template`。
+5. 服务创建后，添加一个 Volume。
+6. Volume 挂载路径填写：
 
-- `OPENROUTER_API_KEY`
-- `CUSTOM_BASE_URL` 加上该提供方对应的 API key 环境变量
-- `OPENAI_BASE_URL` + `OPENAI_API_KEY`
-- `ANTHROPIC_API_KEY`
-- `MINIMAX_API_KEY`
-- `MINIMAX_CN_API_KEY`
+```text
+/data
+```
 
-你至少需要配置一个消息平台：
+7. 进入服务的 `Variables`，按下面的配置方案填写变量。
+8. 等待构建和启动完成。
+9. 看 Railway Logs，正常会出现：
 
-- Telegram：`TELEGRAM_BOT_TOKEN`
-- Discord：`DISCORD_BOT_TOKEN`
-- Slack：`SLACK_BOT_TOKEN` 和 `SLACK_APP_TOKEN`
-- 企业微信 WeCom：`WECOM_BOT_ID` 和 `WECOM_SECRET`
-- 企业微信回调模式 WeCom callback：`WECOM_CALLBACK_CORP_ID`、`WECOM_CALLBACK_CORP_SECRET`、`WECOM_CALLBACK_AGENT_ID`、`WECOM_CALLBACK_TOKEN`、`WECOM_CALLBACK_ENCODING_AES_KEY`
-- 个人微信 Weixin / WeChat：`WEIXIN_ACCOUNT_ID` 加上已持久化的扫码登录状态，或 `WEIXIN_ACCOUNT_ID` + `WEIXIN_TOKEN`
-- QQ Bot：`QQ_APP_ID` 和 `QQ_CLIENT_SECRET`
+```text
+[bootstrap] Starting Hermes gateway...
+```
 
-强烈建议配置 allowlist：
+## 推荐配置：QQ Bot + 无问芯穹
 
-- `TELEGRAM_ALLOWED_USERS`
-- `DISCORD_ALLOWED_USERS`
-- `SLACK_ALLOWED_USERS`
-- `WECOM_ALLOWED_USERS`
-- `WECOM_CALLBACK_ALLOWED_USERS`
-- `WEIXIN_ALLOWED_USERS`
-- `QQ_ALLOWED_USERS`
-
-allowlist 使用英文逗号分隔，不要加中括号或引号：
-
-- `TELEGRAM_ALLOWED_USERS=123456789,987654321`
-- `DISCORD_ALLOWED_USERS=123456789012345678,234567890123456789`
-- `SLACK_ALLOWED_USERS=U01234ABCDE,U09876WXYZ`
-- `QQ_ALLOWED_USERS=openid_a,openid_b`
-- `WEIXIN_ALLOWED_USERS=wxid_a,wxid_b`
-
-请使用 `123,456,789` 这种普通逗号分隔格式。
-不要写成 JSON 或带引号数组，例如 `[123,456]` 或 `"123","456"`。
-
-可选全局控制：
-
-- `GATEWAY_ALLOW_ALL_USERS=true`（不推荐）
-
-## 模型提供方选择
-
-如果你同时配置了多个 provider 的 key，建议显式设置 `HERMES_INFERENCE_PROVIDER`，例如 `openrouter`，避免自动选择到不想用的 provider。
-
-OpenAI 兼容的自定义接口建议这样配置：
+这是最符合你当前需求的一组变量。
 
 ```env
+HERMES_GIT_REF=v2026.5.29
+HERMES_HOME=/data/.hermes
+HOME=/data
+
 HERMES_INFERENCE_PROVIDER=custom
-CUSTOM_BASE_URL=https://your-openai-compatible-endpoint/v1
+HERMES_MODEL=你的无问芯穹模型ID
+OPENAI_BASE_URL=https://cloud.infini-ai.com/maas/v1
+OPENAI_API_KEY=你的无问芯穹APIKey
+
+QQ_APP_ID=你的QQ机器人AppID
+QQ_CLIENT_SECRET=你的QQ机器人ClientSecret
+QQ_ALLOWED_USERS=允许访问的openid_a,允许访问的openid_b
 ```
 
-模板会在启动时把旧写法 `OPENAI_BASE_URL` 映射到 `CUSTOM_BASE_URL`。如果你使用无问芯穹 / InfiniAI（`cloud.infini-ai.com`），建议设置 `INFINI_AI_API_KEY`；如果只设置了 `OPENAI_API_KEY`，模板会为了兼容性自动复制到 `INFINI_AI_API_KEY`。
+说明：
 
-无问芯穹示例：
+- `HERMES_MODEL` 必须填无问芯穹控制台里真实可用的模型 ID。
+- `OPENAI_BASE_URL` 不要漏掉 `/maas/v1`。
+- `QQ_ALLOWED_USERS` 用英文逗号分隔，不要写成 JSON 数组。
+- 如果暂时不知道 openid，可以先排查日志或用 Hermes 的配对机制，但长期建议配置 allowlist。
 
-```env
-HERMES_INFERENCE_PROVIDER=custom
-CUSTOM_BASE_URL=https://cloud.infini-ai.com/maas/v1
-INFINI_AI_API_KEY=your-key
-```
-
-MiniMax 国际版示例：
+## 备选配置：QQ Bot + MiniMax 国际版
 
 ```env
+HERMES_GIT_REF=v2026.5.29
+HERMES_HOME=/data/.hermes
+HOME=/data
+
 HERMES_INFERENCE_PROVIDER=minimax
-MINIMAX_API_KEY=your-key
+HERMES_MODEL=MiniMax-M2.7
+MINIMAX_API_KEY=你的MiniMax国际版Key
+
+QQ_APP_ID=你的QQ机器人AppID
+QQ_CLIENT_SECRET=你的QQ机器人ClientSecret
+QQ_ALLOWED_USERS=允许访问的openid_a,允许访问的openid_b
 ```
 
-MiniMax 中国区示例：
+## 备选配置：QQ Bot + MiniMax 中国区
 
 ```env
+HERMES_GIT_REF=v2026.5.29
+HERMES_HOME=/data/.hermes
+HOME=/data
+
 HERMES_INFERENCE_PROVIDER=minimax-cn
-MINIMAX_CN_API_KEY=your-key
+HERMES_MODEL=MiniMax-M2.7
+MINIMAX_CN_API_KEY=你的MiniMax中国区Key
+
+QQ_APP_ID=你的QQ机器人AppID
+QQ_CLIENT_SECRET=你的QQ机器人ClientSecret
+QQ_ALLOWED_USERS=允许访问的openid_a,允许访问的openid_b
 ```
 
-## Railway 上使用 QQ Bot / 微信
+## 备选配置：企业微信 WeCom + 无问芯穹
 
-Hermes 支持 QQ Bot、个人微信 Weixin / WeChat、企业微信 WeCom，但它们的部署方式不一样：
-
-- QQ Bot 使用腾讯官方 QQ Bot API v2，通过 WebSocket 连接。你需要在 `q.qq.com` 注册应用、开启所需 intents，然后在 Railway Variables 中设置 `QQ_APP_ID` 和 `QQ_CLIENT_SECRET`。
-- 企业微信 WeCom 通常是 Railway 上更稳的腾讯系聊天入口，因为它使用 AI Bot WebSocket，不需要公网回调地址。设置 `WECOM_BOT_ID` 和 `WECOM_SECRET` 即可。
-- 企业微信回调模式需要公网 callback URL。如果在 Railway 上使用，需要给服务暴露公网域名，并在企业微信后台配置 callback path。
-- 个人微信 Weixin / WeChat 使用 iLink 扫码登录。需要通过 Railway SSH 运行一次 `hermes gateway setup`，扫码后把凭据持久化到 `/data/.hermes`，之后保留 `WEIXIN_ACCOUNT_ID`。普通微信群是否可用取决于 iLink 是否向该账号类型推送群事件，私聊更可靠。
-
-QQ Bot + 无问芯穹示例：
+企业微信 WeCom 比个人微信更适合放在 Railway 上长期运行。
 
 ```env
+HERMES_GIT_REF=v2026.5.29
+HERMES_HOME=/data/.hermes
+HOME=/data
+
 HERMES_INFERENCE_PROVIDER=custom
-CUSTOM_BASE_URL=https://cloud.infini-ai.com/maas/v1
-INFINI_AI_API_KEY=your-key
+HERMES_MODEL=你的无问芯穹模型ID
+OPENAI_BASE_URL=https://cloud.infini-ai.com/maas/v1
+OPENAI_API_KEY=你的无问芯穹APIKey
 
-QQ_APP_ID=your-qq-app-id
-QQ_CLIENT_SECRET=your-qq-client-secret
-QQ_ALLOWED_USERS=openid_a,openid_b
-```
-
-QQ Bot + MiniMax 示例：
-
-```env
-HERMES_INFERENCE_PROVIDER=minimax
-MINIMAX_API_KEY=your-key
-
-QQ_APP_ID=your-qq-app-id
-QQ_CLIENT_SECRET=your-qq-client-secret
-QQ_ALLOWED_USERS=openid_a,openid_b
-```
-
-企业微信 WeCom 示例：
-
-```env
-HERMES_INFERENCE_PROVIDER=custom
-CUSTOM_BASE_URL=https://cloud.infini-ai.com/maas/v1
-INFINI_AI_API_KEY=your-key
-
-WECOM_BOT_ID=your-bot-id
-WECOM_SECRET=your-secret
+WECOM_BOT_ID=你的企业微信BotID
+WECOM_SECRET=你的企业微信Secret
 WECOM_ALLOWED_USERS=user_id_1,user_id_2
 ```
 
-个人微信 Weixin 示例：
+## 备选配置：个人微信 Weixin + 无问芯穹
+
+个人微信 Weixin / WeChat 需要扫码登录状态。第一次部署后通常要用 Railway SSH 进入容器执行一次：
+
+```bash
+hermes gateway setup
+```
+
+扫码成功后，凭据会持久化到 `/data/.hermes`。之后 Railway 重启会复用这个 Volume。
 
 ```env
-HERMES_INFERENCE_PROVIDER=custom
-CUSTOM_BASE_URL=https://cloud.infini-ai.com/maas/v1
-INFINI_AI_API_KEY=your-key
+HERMES_GIT_REF=v2026.5.29
+HERMES_HOME=/data/.hermes
+HOME=/data
 
-WEIXIN_ACCOUNT_ID=your-account-id
+HERMES_INFERENCE_PROVIDER=custom
+HERMES_MODEL=你的无问芯穹模型ID
+OPENAI_BASE_URL=https://cloud.infini-ai.com/maas/v1
+OPENAI_API_KEY=你的无问芯穹APIKey
+
+WEIXIN_ACCOUNT_ID=你的微信账号ID
 WEIXIN_ALLOWED_USERS=wxid_a,wxid_b
 ```
 
-## 环境变量参考
+注意：
 
-完整且最新的变量列表请查看 [Hermes repository](https://github.com/NousResearch/hermes-agent)。
+- 个人微信依赖 iLink 扫码登录，Railway 上更容易受账号类型和消息推送限制影响。
+- 普通微信群是否稳定可用取决于 iLink 是否给该账号推送群事件。
+- 如果你只是想稳定用腾讯系入口，优先用企业微信 WeCom 或 QQ Bot。
 
-## 简单使用流程
+## 自定义 OpenAI 兼容接口
 
-部署完成后：
+任何兼容 `/v1/chat/completions` 的接口都可以按下面方式配置：
 
-1. 在你配置的消息平台里和机器人发起对话，例如 Telegram、Discord、Slack、QQ Bot、WeCom 或 Weixin。
-2. 如果启用了 allowlist，确认你的用户 ID 已加入对应的 `*_ALLOWED_USERS`。
-3. 发送普通消息，例如 `hello`。
-4. Hermes 应该会通过配置好的模型提供方回复。
-
-首次排查建议：
-
-- 确认 gateway 日志显示平台连接成功。
-- 确认 Railway Volume 已挂载到 `/data`。
-- 确认模型 provider 变量已经设置，并且 key 有效。
-
-## 在 Railway 上更新
-
-不要在 Railway 部署中直接运行 `hermes update`。
-
-- `hermes update` 会修改正在运行的容器，可能导致持久化的 `/data/.hermes/config.yaml` 比下次 Railway 启动的镜像更新。
-- 在 Railway 上更新 Hermes，应修改服务 Variables 中的 `HERMES_GIT_REF`，固定到指定 tag 或 commit，然后重新部署。
-- Railway 会在构建阶段暴露服务变量，本模板的 Dockerfile 使用 `ARG HERMES_GIT_REF`，因此构建会被该变量固定。
-
-推荐流程：
-
-1. 将 `HERMES_GIT_REF` 设置为明确的上游 tag 或 commit SHA。
-2. 部署或重新部署服务。
-3. 如果上游引入了新的配置项，重新部署后通过 Railway SSH 运行 `hermes config migrate`。
-
-## 手动运行 Hermes 命令
-
-如果需要在已部署服务中手动运行 `hermes ...` 命令，例如 `hermes config`、`hermes model` 或 `hermes pairing list`，可以使用 [Railway SSH](https://docs.railway.com/cli/ssh) 连接到运行中的容器。
-
-连接后可执行：
-
-```bash
-hermes status
-hermes config
-hermes model
-hermes pairing list
+```env
+HERMES_INFERENCE_PROVIDER=custom
+HERMES_MODEL=你的模型ID
+OPENAI_BASE_URL=https://你的接口域名/v1
+OPENAI_API_KEY=你的APIKey
 ```
 
-## 运行时行为
+这个模板也兼容下面这种写法：
 
-入口脚本 `scripts/entrypoint.sh` 会执行这些动作：
+```env
+HERMES_INFERENCE_PROVIDER=custom
+HERMES_MODEL=你的模型ID
+CUSTOM_BASE_URL=https://你的接口域名/v1
+CUSTOM_API_KEY=你的APIKey
+```
 
-- 校验必需的 provider 和消息平台变量
-- 将运行时环境变量写入 `${HERMES_HOME}/.env`
-- 如果缺少 `${HERMES_HOME}/config.yaml`，则自动创建
-- 将旧的 `MESSAGING_CWD` 从 `${HERMES_HOME}/.env` 迁移到 `config.yaml`，并从持久化 env 中移除
-- 写入一次性初始化标记 `${HERMES_HOME}/.initialized`
-- 启动 `hermes gateway`
+入口脚本会自动做兼容映射：
 
-## 故障排查
+- 如果只填 `OPENAI_BASE_URL`，会同步为 `CUSTOM_BASE_URL`。
+- 如果只填 `CUSTOM_BASE_URL`，会同步为 `OPENAI_BASE_URL`。
+- 如果无问芯穹地址里包含 `infini-ai`，`OPENAI_API_KEY` 和 `INFINI_AI_API_KEY` 会自动互相补齐。
+- 自定义端点必须有 key：`OPENAI_API_KEY`、`CUSTOM_API_KEY` 或 `INFINI_AI_API_KEY` 至少一个。
 
-- `401 Missing Authentication header`：通常是 provider 和 key 不匹配，或当前选择的 provider 缺少 API key。
-- 机器人已连接但不回复：检查 allowlist 变量和用户 ID 是否正确。
-- 重新部署后数据丢失：确认 Railway Volume 已挂载到 `/data`。
-- QQ Bot 启动失败：检查 `QQ_APP_ID` 和 `QQ_CLIENT_SECRET` 是否同时设置，并确认 QQ Bot 后台 intents 已开启。
-- Weixin 启动失败：检查 `WEIXIN_ACCOUNT_ID` 和 `WEIXIN_TOKEN`，或重新通过 `hermes gateway setup` 完成扫码登录。
+## 变量完整说明
 
-## 构建版本固定
+### 构建和持久化
 
-本模板要求显式设置 `HERMES_GIT_REF`。
+| 变量 | 是否必填 | 建议值 | 说明 |
+| --- | --- | --- | --- |
+| `HERMES_GIT_REF` | 建议填 | `v2026.5.29` | 构建时拉取 Hermes Agent 的 tag 或 commit。 |
+| `HERMES_HOME` | 必填 | `/data/.hermes` | Hermes 状态目录，必须在 Railway Volume 下。 |
+| `HOME` | 必填 | `/data` | 让 Hermes 和相关 CLI 把状态写到 Volume。 |
+| `TERMINAL_CWD` | 可选 | `/data/workspace` | Hermes 终端工作目录，不填则默认 `/data/workspace`。 |
+| `TERMINAL_TIMEOUT` | 可选 | `180` | 终端命令超时时间，单位秒。 |
 
-Railway 服务变量在构建阶段可用，Dockerfile 中读取：
+### 模型提供方
 
-- `ARG HERMES_GIT_REF`
+| 变量 | 是否必填 | 说明 |
+| --- | --- | --- |
+| `HERMES_INFERENCE_PROVIDER` | 建议填 | 模型 provider。常用值：`custom`、`minimax`、`minimax-cn`、`openrouter`、`anthropic`。 |
+| `HERMES_MODEL` | 建议填 | 默认模型 ID。入口脚本会在首次启动时写入 `config.yaml`。 |
+| `OPENAI_BASE_URL` | 自定义端点必填 | OpenAI 兼容接口 base URL。 |
+| `OPENAI_API_KEY` | 自定义端点必填 | 自定义端点 API key。 |
+| `CUSTOM_BASE_URL` | 可选 | `OPENAI_BASE_URL` 的兼容别名。 |
+| `CUSTOM_API_KEY` | 可选 | `OPENAI_API_KEY` 的兼容别名。 |
+| `INFINI_AI_API_KEY` | 无问芯穹可用 | 无问芯穹 key。也可以直接用 `OPENAI_API_KEY`。 |
+| `OPENROUTER_API_KEY` | OpenRouter 必填 | 使用 OpenRouter 时填写。 |
+| `ANTHROPIC_API_KEY` | Anthropic 必填 | 使用 Anthropic API key 时填写。 |
+| `MINIMAX_API_KEY` | MiniMax 国际版必填 | `HERMES_INFERENCE_PROVIDER=minimax` 时填写。 |
+| `MINIMAX_CN_API_KEY` | MiniMax 中国区必填 | `HERMES_INFERENCE_PROVIDER=minimax-cn` 时填写。 |
 
-请在 Railway Variables 中把 `HERMES_GIT_REF` 设置为固定的上游 tag 或 commit SHA。
-如果不设置，模板默认使用 `v2026.5.29`。
+### QQ Bot
 
-示例：
+| 变量 | 是否必填 | 说明 |
+| --- | --- | --- |
+| `QQ_APP_ID` | QQ 必填 | QQ Bot 应用 ID。 |
+| `QQ_CLIENT_SECRET` | QQ 必填 | QQ Bot Client Secret。 |
+| `QQ_ALLOWED_USERS` | 强烈建议 | 允许私聊访问的 openid，英文逗号分隔。 |
+| `QQ_GROUP_ALLOWED_USERS` | 可选 | 允许群内访问的用户 openid，英文逗号分隔。 |
+| `QQ_ALLOW_ALL_USERS` | 不推荐 | 设置 `true` 会放开 QQ 用户限制。 |
+| `QQBOT_HOME_CHANNEL` | 可选 | Hermes home channel。 |
+| `QQBOT_HOME_CHANNEL_NAME` | 可选 | home channel 展示名。 |
 
-- `HERMES_GIT_REF=v2026.5.29`
-- `HERMES_GIT_REF=4f3c2b1`
+### 企业微信 WeCom
 
-## 本地冒烟测试
+| 变量 | 是否必填 | 说明 |
+| --- | --- | --- |
+| `WECOM_BOT_ID` | WeCom 必填 | 企业微信 Bot ID。 |
+| `WECOM_SECRET` | WeCom 必填 | 企业微信 Secret。 |
+| `WECOM_ALLOWED_USERS` | 强烈建议 | 允许访问的企业微信用户 ID。 |
+| `WECOM_ALLOW_ALL_USERS` | 不推荐 | 设置 `true` 会放开 WeCom 用户限制。 |
+| `WECOM_GROUP_ALLOWED_USERS` | 可选 | 允许群聊访问的用户 ID。 |
+| `WECOM_HOME_CHANNEL` | 可选 | Hermes home channel。 |
+
+### 企业微信回调模式
+
+如果你使用企业微信回调模式，需要 Railway 服务暴露公网域名，并在企业微信后台配置 callback path。
+
+| 变量 | 是否必填 | 说明 |
+| --- | --- | --- |
+| `WECOM_CALLBACK_CORP_ID` | 必填 | 企业微信 Corp ID。 |
+| `WECOM_CALLBACK_CORP_SECRET` | 必填 | 企业微信 Corp Secret。 |
+| `WECOM_CALLBACK_AGENT_ID` | 必填 | 企业微信 Agent ID。 |
+| `WECOM_CALLBACK_TOKEN` | 必填 | 回调 Token。 |
+| `WECOM_CALLBACK_ENCODING_AES_KEY` | 必填 | 回调 EncodingAESKey。 |
+| `WECOM_CALLBACK_HOST` | 可选 | 回调监听 host。 |
+| `WECOM_CALLBACK_PORT` | 可选 | 回调监听端口。 |
+| `WECOM_CALLBACK_ALLOWED_USERS` | 强烈建议 | 允许访问的用户 ID。 |
+
+### 个人微信 Weixin
+
+| 变量 | 是否必填 | 说明 |
+| --- | --- | --- |
+| `WEIXIN_ACCOUNT_ID` | Weixin 必填 | 微信账号 ID。 |
+| `WEIXIN_TOKEN` | 可选 | 如果你已有 token 可直接填写；否则通过扫码登录持久化。 |
+| `WEIXIN_ALLOWED_USERS` | 强烈建议 | 允许私聊访问的 wxid，英文逗号分隔。 |
+| `WEIXIN_GROUP_ALLOWED_USERS` | 可选 | 允许群内访问的 wxid。 |
+| `WEIXIN_ALLOW_ALL_USERS` | 不推荐 | 设置 `true` 会放开 Weixin 用户限制。 |
+
+### Telegram / Discord / Slack
+
+这些平台保留支持，但不是当前推荐主线。
+
+| 平台 | 必填变量 | allowlist |
+| --- | --- | --- |
+| Telegram | `TELEGRAM_BOT_TOKEN` | `TELEGRAM_ALLOWED_USERS` |
+| Discord | `DISCORD_BOT_TOKEN` | `DISCORD_ALLOWED_USERS` |
+| Slack | `SLACK_BOT_TOKEN` + `SLACK_APP_TOKEN` | `SLACK_ALLOWED_USERS` |
+
+## Allowlist 写法
+
+所有 allowlist 都用英文逗号分隔：
+
+```env
+QQ_ALLOWED_USERS=openid_a,openid_b
+WECOM_ALLOWED_USERS=user_id_1,user_id_2
+WEIXIN_ALLOWED_USERS=wxid_a,wxid_b
+```
+
+不要写成：
+
+```env
+QQ_ALLOWED_USERS=["openid_a","openid_b"]
+QQ_ALLOWED_USERS="openid_a","openid_b"
+```
+
+如果没有配置 allowlist，脚本会提示：
+
+```text
+Gateway defaults to deny-all; use DM pairing or set *_ALLOWED_USERS.
+```
+
+## 首次启动会发生什么
+
+入口脚本 `scripts/entrypoint.sh` 会执行：
+
+1. 校验模型 provider 变量。
+2. 校验至少配置了一个消息平台。
+3. 自动创建 `${HERMES_HOME}` 下的目录。
+4. 首次创建 `${HERMES_HOME}/config.yaml`。
+5. 把 Railway Variables 写入 `${HERMES_HOME}/.env`。
+6. 写入初始化标记 `${HERMES_HOME}/.initialized`。
+7. 启动 `hermes gateway`。
+
+如果你设置了：
+
+```env
+HERMES_INFERENCE_PROVIDER=custom
+HERMES_MODEL=your-model
+OPENAI_BASE_URL=https://example.com/v1
+```
+
+首次启动会生成类似：
+
+```yaml
+model:
+  default: your-model
+  provider: custom
+  base_url: https://example.com/v1
+terminal:
+  backend: local
+  cwd: /data/workspace
+  timeout: 180
+compression:
+  enabled: true
+  threshold: 0.85
+```
+
+如果 `/data/.hermes/config.yaml` 已经存在并且已有 `model:` 段，脚本不会覆盖它。
+
+## 修改模型或 provider
+
+首次部署前，直接改 Railway Variables 最方便。
+
+部署后如果你要换模型，有三种方式：
+
+1. 在 Hermes 聊天中使用 `/model ... --global` 持久化。
+2. 通过 Railway SSH 编辑 `/data/.hermes/config.yaml`。
+3. 如果只是测试环境，删除 Volume 里的 `/data/.hermes/config.yaml` 后重新部署，让脚本按 Variables 重建。
+
+不要在 Railway 里直接运行 `hermes update` 更新程序本体。更新 Hermes 版本应修改：
+
+```env
+HERMES_GIT_REF=新的tag或commit
+```
+
+然后重新部署。
+
+## 本地验证
+
+检查脚本语法：
+
+```bash
+bash -n scripts/entrypoint.sh
+```
+
+运行仓库内置烟测：
+
+```bash
+bash scripts/smoke-test.sh
+```
+
+检查 Dockerfile：
+
+```bash
+docker buildx build --check .
+```
+
+本地构建镜像：
 
 ```bash
 docker build --build-arg HERMES_GIT_REF=v2026.5.29 -t hermes-railway-template .
+```
 
+本地运行示例：
+
+```bash
 docker run --rm \
-  -e OPENROUTER_API_KEY=sk-or-xxx \
-  -e TELEGRAM_BOT_TOKEN=123456:ABC \
-  -e TELEGRAM_ALLOWED_USERS=123456789 \
+  -e HERMES_INFERENCE_PROVIDER=custom \
+  -e HERMES_MODEL=your-model \
+  -e OPENAI_BASE_URL=https://cloud.infini-ai.com/maas/v1 \
+  -e OPENAI_API_KEY=your-key \
+  -e QQ_APP_ID=app-id \
+  -e QQ_CLIENT_SECRET=secret \
+  -e QQ_ALLOWED_USERS=openid_a \
   -v "$(pwd)/.tmpdata:/data" \
   hermes-railway-template
 ```
+
+## 常见问题
+
+### Railway 构建失败
+
+先看 Build logs 的最后 30 行。常见原因：
+
+- `HERMES_GIT_REF` 写错，GitHub 拉不到 tag 或 commit。
+- Railway 没有使用 Dockerfile 构建。
+- 上游 Hermes 依赖临时下载失败。
+
+### 启动时报 provider 错误
+
+检查你至少配置了一组模型变量：
+
+- 无问芯穹 / 自定义接口：`OPENAI_BASE_URL` + `OPENAI_API_KEY`
+- MiniMax 国际版：`MINIMAX_API_KEY`
+- MiniMax 中国区：`MINIMAX_CN_API_KEY`
+- OpenRouter：`OPENROUTER_API_KEY`
+- Anthropic：`ANTHROPIC_API_KEY`
+
+### QQ Bot 启动失败
+
+检查：
+
+- `QQ_APP_ID` 和 `QQ_CLIENT_SECRET` 是否同时填写。
+- QQ Bot 后台 intents 是否开启。
+- `QQ_ALLOWED_USERS` 是否是 openid，不是 QQ 号。
+
+### 机器人已连接但不回复
+
+优先检查 allowlist：
+
+- QQ 用 `QQ_ALLOWED_USERS`
+- 企业微信用 `WECOM_ALLOWED_USERS`
+- 个人微信用 `WEIXIN_ALLOWED_USERS`
+
+### 重新部署后数据丢失
+
+确认 Railway Volume 挂载路径是：
+
+```text
+/data
+```
+
+不要挂到 `/app`、`/root` 或其他路径。
+
+## 参考
+
+- Railway Dockerfile 变量需要在 Dockerfile 中用 `ARG` 声明。
+- Railway 从 GitHub 仓库部署时会自动识别根目录 Dockerfile。
+- Hermes 自定义 OpenAI 兼容端点使用 `OPENAI_BASE_URL` + `OPENAI_API_KEY`，或者在 `config.yaml` 中设置 `model.base_url`。
+
+上游文档：
+
+- https://docs.railway.com
+- https://github.com/NousResearch/hermes-agent
+- https://github.com/NousResearch/hermes-agent/tree/main/website/docs

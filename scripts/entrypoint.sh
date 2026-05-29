@@ -81,11 +81,7 @@ has_valid_provider_config() {
     return 0
   fi
 
-  if [[ -n "${CUSTOM_BASE_URL:-}" ]]; then
-    return 0
-  fi
-
-  if [[ -n "${OPENAI_BASE_URL:-}" && -n "${OPENAI_API_KEY:-}" ]]; then
+  if has_custom_endpoint_config; then
     return 0
   fi
 
@@ -100,14 +96,40 @@ has_valid_provider_config() {
   return 1
 }
 
+has_custom_endpoint_config() {
+  if [[ -z "${CUSTOM_BASE_URL:-}${OPENAI_BASE_URL:-}" ]]; then
+    return 1
+  fi
+
+  if [[ -n "${OPENAI_API_KEY:-}${CUSTOM_API_KEY:-}${INFINI_AI_API_KEY:-}" ]]; then
+    return 0
+  fi
+
+  return 1
+}
+
 normalize_provider_env() {
   if [[ -z "${CUSTOM_BASE_URL:-}" && -n "${OPENAI_BASE_URL:-}" ]]; then
     export CUSTOM_BASE_URL="${OPENAI_BASE_URL}"
   fi
 
+  if [[ -z "${OPENAI_BASE_URL:-}" && -n "${CUSTOM_BASE_URL:-}" ]]; then
+    export OPENAI_BASE_URL="${CUSTOM_BASE_URL}"
+  fi
+
+  if [[ -z "${OPENAI_API_KEY:-}" && -n "${CUSTOM_API_KEY:-}" ]]; then
+    export OPENAI_API_KEY="${CUSTOM_API_KEY}"
+  fi
+
   if [[ -n "${OPENAI_API_KEY:-}" && -z "${INFINI_AI_API_KEY:-}" ]]; then
     case "${CUSTOM_BASE_URL:-}${OPENAI_BASE_URL:-}" in
       *infini-ai*) export INFINI_AI_API_KEY="${OPENAI_API_KEY}" ;;
+    esac
+  fi
+
+  if [[ -n "${INFINI_AI_API_KEY:-}" && -z "${OPENAI_API_KEY:-}" ]]; then
+    case "${CUSTOM_BASE_URL:-}${OPENAI_BASE_URL:-}" in
+      *infini-ai*) export OPENAI_API_KEY="${INFINI_AI_API_KEY}" ;;
     esac
   fi
 }
@@ -148,9 +170,40 @@ config_has_terminal_section() {
   [[ -f "$CONFIG_FILE" ]] && grep -qE '^terminal:[[:space:]]*$' "$CONFIG_FILE"
 }
 
+config_has_model_section() {
+  [[ -f "$CONFIG_FILE" ]] && grep -qE '^model:[[:space:]]*$' "$CONFIG_FILE"
+}
+
+write_model_config() {
+  local provider="${HERMES_INFERENCE_PROVIDER:-}"
+  local model="${HERMES_MODEL:-${MODEL_NAME:-}}"
+  local base_url="${CUSTOM_BASE_URL:-${OPENAI_BASE_URL:-}}"
+
+  if [[ -z "$provider" && -n "$base_url" ]]; then
+    provider="custom"
+  fi
+
+  if [[ -z "${provider}${model}${base_url}" ]]; then
+    return 0
+  fi
+
+  echo "model:"
+  if [[ -n "$model" ]]; then
+    echo "  default: ${model}"
+  fi
+  if [[ -n "$provider" ]]; then
+    echo "  provider: ${provider}"
+  fi
+  if [[ -n "$base_url" ]]; then
+    echo "  base_url: ${base_url}"
+  fi
+}
+
 create_default_config() {
   echo "[bootstrap] Creating ${CONFIG_FILE}"
-  cat > "$CONFIG_FILE" <<EOF
+  {
+    write_model_config
+    cat <<EOF
 terminal:
   backend: ${TERMINAL_ENV:-${TERMINAL_BACKEND:-local}}
   cwd: $1
@@ -159,6 +212,20 @@ compression:
   enabled: true
   threshold: 0.85
 EOF
+  } > "$CONFIG_FILE"
+}
+
+ensure_model_in_config() {
+  if [[ ! -f "$CONFIG_FILE" || config_has_model_section ]]; then
+    return 0
+  fi
+
+  if [[ -n "${HERMES_INFERENCE_PROVIDER:-}${HERMES_MODEL:-}${MODEL_NAME:-}${CUSTOM_BASE_URL:-}${OPENAI_BASE_URL:-}" ]]; then
+    {
+      printf '\n'
+      write_model_config
+    } >> "$CONFIG_FILE"
+  fi
 }
 
 ensure_terminal_cwd_in_config() {
@@ -208,13 +275,19 @@ migrate_legacy_messaging_cwd() {
 normalize_provider_env
 
 if ! has_valid_provider_config; then
-  echo "[bootstrap] ERROR: Configure a provider: OPENROUTER_API_KEY, CUSTOM_BASE_URL, OPENAI_BASE_URL+OPENAI_API_KEY, ANTHROPIC_API_KEY, MINIMAX_API_KEY, or MINIMAX_CN_API_KEY." >&2
+  if [[ -n "${CUSTOM_BASE_URL:-}${OPENAI_BASE_URL:-}" ]]; then
+    echo "[bootstrap] ERROR: Custom/OpenAI-compatible endpoints require CUSTOM_BASE_URL or OPENAI_BASE_URL plus OPENAI_API_KEY, CUSTOM_API_KEY, or INFINI_AI_API_KEY." >&2
+  else
+    echo "[bootstrap] ERROR: Configure a provider: OPENROUTER_API_KEY, OPENAI_BASE_URL+OPENAI_API_KEY, CUSTOM_BASE_URL+OPENAI_API_KEY, ANTHROPIC_API_KEY, MINIMAX_API_KEY, or MINIMAX_CN_API_KEY." >&2
+  fi
   exit 1
 fi
 
 validate_platforms
 
 migrate_legacy_messaging_cwd
+
+ensure_model_in_config
 
 echo "[bootstrap] Writing runtime env to ${ENV_FILE}"
 {
@@ -223,7 +296,7 @@ echo "[bootstrap] Writing runtime env to ${ENV_FILE}"
 } > "$ENV_FILE"
 
 for key in \
-  OPENROUTER_API_KEY CUSTOM_BASE_URL OPENAI_API_KEY OPENAI_BASE_URL INFINI_AI_API_KEY ANTHROPIC_API_KEY MINIMAX_API_KEY MINIMAX_BASE_URL MINIMAX_CN_API_KEY MINIMAX_CN_BASE_URL LLM_MODEL HERMES_INFERENCE_PROVIDER HERMES_PORTAL_BASE_URL NOUS_INFERENCE_BASE_URL HERMES_NOUS_MIN_KEY_TTL_SECONDS HERMES_DUMP_REQUESTS \
+  OPENROUTER_API_KEY CUSTOM_BASE_URL CUSTOM_API_KEY OPENAI_API_KEY OPENAI_BASE_URL INFINI_AI_API_KEY ANTHROPIC_API_KEY MINIMAX_API_KEY MINIMAX_BASE_URL MINIMAX_CN_API_KEY MINIMAX_CN_BASE_URL HERMES_MODEL MODEL_NAME HERMES_INFERENCE_PROVIDER HERMES_PORTAL_BASE_URL NOUS_INFERENCE_BASE_URL HERMES_NOUS_MIN_KEY_TTL_SECONDS HERMES_DUMP_REQUESTS \
   TELEGRAM_BOT_TOKEN TELEGRAM_ALLOWED_USERS TELEGRAM_ALLOW_ALL_USERS TELEGRAM_HOME_CHANNEL TELEGRAM_HOME_CHANNEL_NAME \
   DISCORD_BOT_TOKEN DISCORD_ALLOWED_USERS DISCORD_ALLOW_ALL_USERS DISCORD_HOME_CHANNEL DISCORD_HOME_CHANNEL_NAME DISCORD_REQUIRE_MENTION DISCORD_FREE_RESPONSE_CHANNELS \
   SLACK_BOT_TOKEN SLACK_APP_TOKEN SLACK_ALLOWED_USERS SLACK_ALLOW_ALL_USERS SLACK_HOME_CHANNEL SLACK_HOME_CHANNEL_NAME WHATSAPP_ENABLED WHATSAPP_ALLOWED_USERS \
