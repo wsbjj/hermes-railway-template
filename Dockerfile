@@ -46,7 +46,7 @@ COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /opt/hermes-agent /opt/hermes-agent
 
 WORKDIR /app
-COPY scripts/entrypoint.sh /app/scripts/entrypoint.sh
+COPY scripts/ /app/scripts/
 RUN chmod +x /app/scripts/entrypoint.sh
 
 ENTRYPOINT ["tini", "--"]

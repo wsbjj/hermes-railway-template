@@ -9,6 +9,8 @@ INIT_MARKER="${HERMES_HOME}/.initialized"
 ENV_FILE="${HERMES_HOME}/.env"
 CONFIG_FILE="${HERMES_HOME}/config.yaml"
 DEFAULT_TERMINAL_CWD="${TERMINAL_CWD:-${LEGACY_MESSAGING_CWD}}"
+STATUS_PAGE_PID=""
+GATEWAY_PID=""
 
 mkdir -p "${HERMES_HOME}" "${HERMES_HOME}/logs" "${HERMES_HOME}/sessions" "${HERMES_HOME}/cron" "${HERMES_HOME}/pairing" "${DEFAULT_TERMINAL_CWD}"
 
@@ -17,6 +19,40 @@ is_true() {
     1|true|TRUE|yes|YES|on|ON) return 0 ;;
     *) return 1 ;;
   esac
+}
+
+cleanup() {
+  local code=$?
+  trap - EXIT
+
+  if [[ -n "${GATEWAY_PID:-}" ]]; then
+    kill "$GATEWAY_PID" 2>/dev/null || true
+  fi
+
+  if [[ -n "${STATUS_PAGE_PID:-}" ]]; then
+    kill "$STATUS_PAGE_PID" 2>/dev/null || true
+  fi
+
+  wait "$GATEWAY_PID" 2>/dev/null || true
+  wait "$STATUS_PAGE_PID" 2>/dev/null || true
+  exit "$code"
+}
+
+start_status_page() {
+  if ! is_true "${STATUS_PAGE_ENABLED:-true}"; then
+    echo "[bootstrap] Status page disabled."
+    return 0
+  fi
+
+  echo "[bootstrap] Starting status page on ${STATUS_PAGE_HOST:-0.0.0.0}:${PORT:-${STATUS_PAGE_PORT:-8080}}"
+  python /app/scripts/status_server.py &
+  STATUS_PAGE_PID=$!
+  sleep 0.2
+  if ! kill -0 "$STATUS_PAGE_PID" 2>/dev/null; then
+    echo "[bootstrap] ERROR: Status page failed to start." >&2
+    wait "$STATUS_PAGE_PID" 2>/dev/null || true
+    exit 1
+  fi
 }
 
 validate_platforms() {
@@ -297,6 +333,7 @@ echo "[bootstrap] Writing runtime env to ${ENV_FILE}"
 
 for key in \
   OPENROUTER_API_KEY CUSTOM_BASE_URL CUSTOM_API_KEY OPENAI_API_KEY OPENAI_BASE_URL INFINI_AI_API_KEY ANTHROPIC_API_KEY MINIMAX_API_KEY MINIMAX_BASE_URL MINIMAX_CN_API_KEY MINIMAX_CN_BASE_URL HERMES_MODEL MODEL_NAME HERMES_INFERENCE_PROVIDER HERMES_PORTAL_BASE_URL NOUS_INFERENCE_BASE_URL HERMES_NOUS_MIN_KEY_TTL_SECONDS HERMES_DUMP_REQUESTS \
+  STATUS_PAGE_ENABLED STATUS_PAGE_HOST STATUS_PAGE_PORT PORT \
   TELEGRAM_BOT_TOKEN TELEGRAM_ALLOWED_USERS TELEGRAM_ALLOW_ALL_USERS TELEGRAM_HOME_CHANNEL TELEGRAM_HOME_CHANNEL_NAME \
   DISCORD_BOT_TOKEN DISCORD_ALLOWED_USERS DISCORD_ALLOW_ALL_USERS DISCORD_HOME_CHANNEL DISCORD_HOME_CHANNEL_NAME DISCORD_REQUIRE_MENTION DISCORD_FREE_RESPONSE_CHANNELS \
   SLACK_BOT_TOKEN SLACK_APP_TOKEN SLACK_ALLOWED_USERS SLACK_ALLOW_ALL_USERS SLACK_HOME_CHANNEL SLACK_HOME_CHANNEL_NAME WHATSAPP_ENABLED WHATSAPP_ALLOWED_USERS \
@@ -326,6 +363,13 @@ if [[ -z "${TELEGRAM_ALLOWED_USERS:-}${DISCORD_ALLOWED_USERS:-}${SLACK_ALLOWED_U
   fi
 fi
 
+trap cleanup EXIT
+trap 'exit 143' TERM INT
+
+start_status_page
+
 echo "[bootstrap] Starting Hermes gateway..."
 unset MESSAGING_CWD
-exec hermes gateway
+hermes gateway &
+GATEWAY_PID=$!
+wait "$GATEWAY_PID"

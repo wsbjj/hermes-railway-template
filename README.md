@@ -31,11 +31,15 @@ Railway Dashboard -> New Project -> Deploy from GitHub repo -> wsbjj/hermes-rail
 
 7. 进入服务的 `Variables`，按下面的配置方案填写变量。
 8. 等待构建和启动完成。
-9. 看 Railway Logs，正常会出现：
+9. 打开 Railway 生成的公网链接，应该能看到 Hermes Railway 状态页。
+10. 看 Railway Logs，正常会出现：
 
 ```text
+[bootstrap] Starting status page on 0.0.0.0:<PORT>
 [bootstrap] Starting Hermes gateway...
 ```
+
+状态页只是部署健康页面，不是聊天 UI。真正聊天仍然通过 QQ Bot、WeCom、Weixin、Telegram、Discord 或 Slack 进行。
 
 ## 推荐配置：QQ Bot + 无问芯穹
 
@@ -182,6 +186,10 @@ CUSTOM_API_KEY=你的APIKey
 | `HOME` | 必填 | `/data` | 让 Hermes 和相关 CLI 把状态写到 Volume。 |
 | `TERMINAL_CWD` | 可选 | `/data/workspace` | Hermes 终端工作目录，不填则默认 `/data/workspace`。 |
 | `TERMINAL_TIMEOUT` | 可选 | `180` | 终端命令超时时间，单位秒。 |
+| `PORT` | Railway 自动注入 | 不要手动设置 | Railway 公网链接转发到的端口，状态页会监听这个端口。 |
+| `STATUS_PAGE_ENABLED` | 可选 | `true` | 是否启动轻量状态页；设置为 `false` 可关闭。 |
+| `STATUS_PAGE_HOST` | 可选 | `0.0.0.0` | 状态页监听地址，Railway 上必须能绑定公网流量。 |
+| `STATUS_PAGE_PORT` | 可选 | `8080` | 本地备用端口；Railway 上优先使用 `PORT`。 |
 
 ### 模型提供方
 
@@ -290,7 +298,8 @@ Gateway defaults to deny-all; use DM pairing or set *_ALLOWED_USERS.
 4. 首次创建 `${HERMES_HOME}/config.yaml`。
 5. 把 Railway Variables 写入 `${HERMES_HOME}/.env`。
 6. 写入初始化标记 `${HERMES_HOME}/.initialized`。
-7. 启动 `hermes gateway`。
+7. 启动轻量状态页，监听 Railway 的 `$PORT`。
+8. 启动 `hermes gateway`。
 
 如果你设置了：
 
@@ -317,6 +326,40 @@ compression:
 ```
 
 如果 `/data/.hermes/config.yaml` 已经存在并且已有 `model:` 段，脚本不会覆盖它。
+
+## 轻量状态页
+
+这个仓库会默认启动一个很小的 HTTP 状态页，让 Railway 公网链接可以打开。
+
+可访问路径：
+
+```text
+/         HTML 状态页
+/healthz  返回 ok
+/readyz   返回 JSON 状态
+```
+
+状态页只展示非敏感信息：
+
+- Hermes gateway 是否在线
+- Railway service / environment 名称
+- 当前 provider 和模型名
+- 已启用的消息平台，例如 `qqbot`、`wecom`、`weixin`
+- `/data/.hermes/config.yaml` 是否存在
+
+状态页不会显示：
+
+- API key
+- token
+- secret
+- allowlist 用户 ID
+- QQ openid / 微信 wxid
+
+如果不想暴露状态页，可以在 Railway Variables 中设置：
+
+```env
+STATUS_PAGE_ENABLED=false
+```
 
 ## 修改模型或 provider
 
@@ -350,6 +393,12 @@ bash -n scripts/entrypoint.sh
 bash scripts/smoke-test.sh
 ```
 
+单独检查状态页脚本：
+
+```bash
+python -m py_compile scripts/status_server.py
+```
+
 检查 Dockerfile：
 
 ```bash
@@ -366,6 +415,8 @@ docker build --build-arg HERMES_GIT_REF=v2026.5.29 -t hermes-railway-template .
 
 ```bash
 docker run --rm \
+  -p 8080:8080 \
+  -e PORT=8080 \
   -e HERMES_INFERENCE_PROVIDER=custom \
   -e HERMES_MODEL=your-model \
   -e OPENAI_BASE_URL=https://cloud.infini-ai.com/maas/v1 \
@@ -412,6 +463,22 @@ docker run --rm \
 - QQ 用 `QQ_ALLOWED_USERS`
 - 企业微信用 `WECOM_ALLOWED_USERS`
 - 个人微信用 `WEIXIN_ALLOWED_USERS`
+
+### Railway 链接还是打不开
+
+检查 Deploy Logs 中是否出现：
+
+```text
+[bootstrap] Starting status page on 0.0.0.0:<PORT>
+```
+
+如果没有，确认没有设置：
+
+```env
+STATUS_PAGE_ENABLED=false
+```
+
+如果出现 `Status page failed to start`，通常是端口变量异常或服务进程启动失败。Railway 正常会自动注入 `PORT`，一般不需要手动设置。
 
 ### 重新部署后数据丢失
 
