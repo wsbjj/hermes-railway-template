@@ -15,6 +15,7 @@ Railway Dashboard -> New Project -> Deploy from GitHub repo -> wsbjj/hermes-rail
 - 首次启动时自动创建 `/data/.hermes/config.yaml` 和 `/data/.hermes/.env`。
 - 支持 Telegram、Discord、Slack、QQ Bot、企业微信 WeCom、企业微信回调、个人微信 Weixin。
 - 重点适配你的场景：QQ Bot / 微信 + 无问芯穹 / MiniMax / 自定义 OpenAI 兼容接口。
+- 可选启用 Hermes 官方 Web Dashboard，让 Railway 网页也能直接聊天。
 
 ## 快速部署
 
@@ -40,6 +41,29 @@ Railway Dashboard -> New Project -> Deploy from GitHub repo -> wsbjj/hermes-rail
 ```
 
 状态页只是部署健康页面，不是聊天 UI。真正聊天仍然通过 QQ Bot、WeCom、Weixin、Telegram、Discord 或 Slack 进行。
+
+如果启用官方 Web Dashboard，Railway 链接会打开 Dashboard，而不是轻量状态页。
+
+## Railway dev 环境和 GitHub dev 分支
+
+这个仓库已经有 `dev` 分支。Railway 的环境名称不会自动绑定 GitHub 分支；你需要在 Railway 的 `dev` 环境里手动选择 source branch 为 `dev`。
+
+建议流程：
+
+1. Railway 左上角点击 `production` 下拉。
+2. 点击 `New Environment`。
+3. 新环境命名为 `dev`，可以从 `production` 复制配置。
+4. 进入 `dev` 环境的 `hermes-railway-template` 服务。
+5. 在 `Settings` 里把 GitHub source branch 改成 `dev`。
+
+之后：
+
+```text
+GitHub dev  -> Railway dev
+GitHub main -> Railway production
+```
+
+不要让 `production` 和 `dev` 同时使用同一套 QQ Bot、WeCom 或 Weixin 凭据。两个环境同时连接同一个机器人账号，可能抢连接或重复回复。
 
 ## 推荐配置：QQ Bot + 无问芯穹
 
@@ -190,6 +214,14 @@ CUSTOM_API_KEY=你的APIKey
 | `STATUS_PAGE_ENABLED` | 可选 | `true` | 是否启动轻量状态页；设置为 `false` 可关闭。 |
 | `STATUS_PAGE_HOST` | 可选 | `0.0.0.0` | 状态页监听地址，Railway 上必须能绑定公网流量。 |
 | `STATUS_PAGE_PORT` | 可选 | `8080` | 本地备用端口；Railway 上优先使用 `PORT`。 |
+| `HERMES_GATEWAY_ENABLED` | 可选 | `true` | 是否启动 QQ Bot / WeCom / Weixin 等消息网关；纯 Web Dashboard 测试环境可设为 `false`。 |
+| `HERMES_DASHBOARD` | 可选 | `false` | 设置为 `1` 或 `true` 后启动 Hermes 官方 Web Dashboard。 |
+| `HERMES_DASHBOARD_HOST` | 可选 | `0.0.0.0` | Dashboard 监听地址；Railway 上需要 `0.0.0.0`。 |
+| `HERMES_DASHBOARD_PORT` | 可选 | `9119` | Dashboard 本地备用端口；Railway 上优先使用 `PORT`。 |
+| `HERMES_DASHBOARD_TUI` | 可选 | `true` | 是否开启 Dashboard 的网页聊天页。 |
+| `HERMES_DASHBOARD_INSECURE` | 可选 | `false` | 跳过 Dashboard OAuth gate；只允许在 dev 测试环境短期使用。 |
+| `HERMES_DASHBOARD_PUBLIC_URL` | 公开 Dashboard 建议填 | Railway 公网 URL | OAuth 回调使用的公开 Dashboard 地址。 |
+| `HERMES_DASHBOARD_OAUTH_CLIENT_ID` | 公开 Dashboard 建议填 | Nous Portal client id | 启用官方 OAuth gate，避免公网暴露 `.env`。 |
 
 ### 模型提供方
 
@@ -293,13 +325,14 @@ Gateway defaults to deny-all; use DM pairing or set *_ALLOWED_USERS.
 入口脚本 `scripts/entrypoint.sh` 会执行：
 
 1. 校验模型 provider 变量。
-2. 校验至少配置了一个消息平台。
+2. 如果 `HERMES_GATEWAY_ENABLED=true`，校验至少配置了一个消息平台。
 3. 自动创建 `${HERMES_HOME}` 下的目录。
 4. 首次创建 `${HERMES_HOME}/config.yaml`。
 5. 把 Railway Variables 写入 `${HERMES_HOME}/.env`。
 6. 写入初始化标记 `${HERMES_HOME}/.initialized`。
-7. 启动轻量状态页，监听 Railway 的 `$PORT`。
-8. 启动 `hermes gateway`。
+7. 如果 `HERMES_DASHBOARD=1`，启动 Hermes 官方 Web Dashboard，监听 Railway 的 `$PORT`。
+8. 如果没有启用 Dashboard，启动轻量状态页，监听 Railway 的 `$PORT`。
+9. 如果 `HERMES_GATEWAY_ENABLED=true`，启动 `hermes gateway`。
 
 如果你设置了：
 
@@ -360,6 +393,43 @@ compression:
 ```env
 STATUS_PAGE_ENABLED=false
 ```
+
+启用官方 Web Dashboard 时，Dashboard 会占用 Railway 的 `$PORT`，轻量状态页不会启动。
+
+## 官方 Web Dashboard
+
+Hermes 官方 Web Dashboard 是真正的网页 UI。启用 `--tui` 后，Dashboard 里会出现 Chat 页，可以在浏览器里直接和 Hermes 对话。
+
+最小 dev 测试配置：
+
+```env
+HERMES_DASHBOARD=1
+HERMES_DASHBOARD_TUI=1
+HERMES_DASHBOARD_INSECURE=true
+HERMES_GATEWAY_ENABLED=false
+```
+
+这组配置适合 Railway `dev` 环境短期验证网页聊天。`HERMES_GATEWAY_ENABLED=false` 表示不启动 QQ Bot / WeCom / Weixin 网关，避免 dev 环境误用 production 机器人凭据。
+
+如果要同时保留 QQ Bot：
+
+```env
+HERMES_DASHBOARD=1
+HERMES_DASHBOARD_TUI=1
+HERMES_DASHBOARD_INSECURE=true
+HERMES_GATEWAY_ENABLED=true
+
+QQ_APP_ID=你的测试QQ机器人AppID
+QQ_CLIENT_SECRET=你的测试QQ机器人ClientSecret
+QQ_ALLOWED_USERS=你的测试openid
+```
+
+公网安全提醒：
+
+- Dashboard 会读写 `/data/.hermes/.env`，里面可能有 API key、token、secret。
+- `HERMES_DASHBOARD_INSECURE=true` 会跳过 OAuth gate，不要在 production 长期开启。
+- production 如果要公开 Dashboard，建议使用 `HERMES_DASHBOARD_OAUTH_CLIENT_ID` 和 `HERMES_DASHBOARD_PUBLIC_URL` 配置官方 OAuth。
+- 如果没有 OAuth，又没有设置 `HERMES_DASHBOARD_INSECURE=true`，Dashboard 在公网绑定时会拒绝启动，这是官方的 fail-closed 行为。
 
 ## 修改模型或 provider
 

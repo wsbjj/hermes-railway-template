@@ -17,6 +17,14 @@ new_case_dir() {
   mkdir -p "$tmp/bin" "$tmp/home" "$tmp/workspace"
   cat > "$tmp/bin/hermes" <<'SH'
 #!/usr/bin/env bash
+if [[ "${1:-}" == "dashboard" ]]; then
+  echo "fake hermes $*"
+  if [[ "${FAKE_HERMES_DASHBOARD_EXIT:-}" == "1" ]]; then
+    exit 1
+  fi
+  sleep "${FAKE_HERMES_DASHBOARD_SLEEP:-60}"
+  exit 0
+fi
 echo "fake hermes $*"
 SH
   chmod +x "$tmp/bin/hermes"
@@ -168,6 +176,62 @@ PY
   echo "status page OK"
 }
 
+run_dashboard_case() {
+  local name="$1"
+  shift
+  local tmp
+  tmp="$(new_case_dir)"
+
+  PATH="$tmp/bin:$PATH" \
+    HERMES_HOME="$tmp/home/.hermes" \
+    HOME="$tmp/home" \
+    TERMINAL_CWD="$tmp/workspace" \
+    PORT=19091 \
+    HERMES_DASHBOARD=1 \
+    HERMES_DASHBOARD_INSECURE=true \
+    "$@" "$ROOT_DIR/scripts/entrypoint.sh" > "$tmp/out.txt" 2>&1
+
+  grep -q "Starting Hermes dashboard on 0.0.0.0:19091" "$tmp/out.txt"
+  grep -q "fake hermes dashboard --host 0.0.0.0 --port 19091 --no-open --tui --insecure" "$tmp/out.txt"
+  grep -q "Starting Hermes gateway" "$tmp/out.txt"
+  grep -q "fake hermes gateway" "$tmp/out.txt"
+  if grep -q "Starting status page" "$tmp/out.txt"; then
+    echo "$name unexpectedly started status page" >&2
+    cat "$tmp/out.txt" >&2
+    exit 1
+  fi
+  echo "$name OK"
+}
+
+run_dashboard_only_case() {
+  local tmp
+  tmp="$(new_case_dir)"
+
+  PATH="$tmp/bin:$PATH" \
+    HERMES_HOME="$tmp/home/.hermes" \
+    HOME="$tmp/home" \
+    TERMINAL_CWD="$tmp/workspace" \
+    PORT=19092 \
+    HERMES_DASHBOARD=1 \
+    HERMES_DASHBOARD_INSECURE=true \
+    HERMES_GATEWAY_ENABLED=false \
+    FAKE_HERMES_DASHBOARD_SLEEP=1 \
+    HERMES_INFERENCE_PROVIDER=custom \
+    OPENAI_BASE_URL=https://api.example.com/v1 \
+    OPENAI_API_KEY=test-key \
+    "$ROOT_DIR/scripts/entrypoint.sh" > "$tmp/out.txt" 2>&1
+
+  grep -q "Starting Hermes dashboard on 0.0.0.0:19092" "$tmp/out.txt"
+  grep -q "fake hermes dashboard --host 0.0.0.0 --port 19092 --no-open --tui --insecure" "$tmp/out.txt"
+  grep -q "Gateway disabled" "$tmp/out.txt"
+  if grep -q "fake hermes gateway" "$tmp/out.txt"; then
+    echo "Dashboard-only mode unexpectedly started gateway" >&2
+    cat "$tmp/out.txt" >&2
+    exit 1
+  fi
+  echo "Dashboard-only web chat OK"
+}
+
 run_success "QQ InfiniAI via OPENAI_BASE_URL" env \
   HERMES_INFERENCE_PROVIDER=custom \
   OPENAI_BASE_URL=https://cloud.infini-ai.com/maas/v1 \
@@ -227,4 +291,20 @@ run_failure "QQ missing secret" "QQ Bot requires both QQ_APP_ID and QQ_CLIENT_SE
   MINIMAX_API_KEY=test-key \
   QQ_APP_ID=app-id
 
+run_failure "gateway disabled without dashboard" "HERMES_GATEWAY_ENABLED=false requires HERMES_DASHBOARD=1" env \
+  HERMES_GATEWAY_ENABLED=false \
+  HERMES_INFERENCE_PROVIDER=custom \
+  OPENAI_BASE_URL=https://api.example.com/v1 \
+  OPENAI_API_KEY=test-key
+
 run_status_page_case
+
+run_dashboard_case "Dashboard with QQ gateway" env \
+  HERMES_INFERENCE_PROVIDER=custom \
+  OPENAI_BASE_URL=https://api.example.com/v1 \
+  OPENAI_API_KEY=test-key \
+  QQ_APP_ID=app-id \
+  QQ_CLIENT_SECRET=secret \
+  QQ_ALLOWED_USERS=openid_a
+
+run_dashboard_only_case

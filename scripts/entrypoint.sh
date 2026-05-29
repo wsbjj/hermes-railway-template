@@ -10,6 +10,7 @@ ENV_FILE="${HERMES_HOME}/.env"
 CONFIG_FILE="${HERMES_HOME}/config.yaml"
 DEFAULT_TERMINAL_CWD="${TERMINAL_CWD:-${LEGACY_MESSAGING_CWD}}"
 STATUS_PAGE_PID=""
+DASHBOARD_PID=""
 GATEWAY_PID=""
 
 mkdir -p "${HERMES_HOME}" "${HERMES_HOME}/logs" "${HERMES_HOME}/sessions" "${HERMES_HOME}/cron" "${HERMES_HOME}/pairing" "${DEFAULT_TERMINAL_CWD}"
@@ -33,9 +34,28 @@ cleanup() {
     kill "$STATUS_PAGE_PID" 2>/dev/null || true
   fi
 
-  wait "$GATEWAY_PID" 2>/dev/null || true
-  wait "$STATUS_PAGE_PID" 2>/dev/null || true
+  if [[ -n "${DASHBOARD_PID:-}" ]]; then
+    kill "$DASHBOARD_PID" 2>/dev/null || true
+  fi
+
+  if [[ -n "${GATEWAY_PID:-}" ]]; then
+    wait "$GATEWAY_PID" 2>/dev/null || true
+  fi
+  if [[ -n "${STATUS_PAGE_PID:-}" ]]; then
+    wait "$STATUS_PAGE_PID" 2>/dev/null || true
+  fi
+  if [[ -n "${DASHBOARD_PID:-}" ]]; then
+    wait "$DASHBOARD_PID" 2>/dev/null || true
+  fi
   exit "$code"
+}
+
+dashboard_enabled() {
+  is_true "${HERMES_DASHBOARD:-false}"
+}
+
+gateway_enabled() {
+  is_true "${HERMES_GATEWAY_ENABLED:-true}"
 }
 
 start_status_page() {
@@ -51,6 +71,38 @@ start_status_page() {
   if ! kill -0 "$STATUS_PAGE_PID" 2>/dev/null; then
     echo "[bootstrap] ERROR: Status page failed to start." >&2
     wait "$STATUS_PAGE_PID" 2>/dev/null || true
+    exit 1
+  fi
+}
+
+start_dashboard() {
+  if ! dashboard_enabled; then
+    return 0
+  fi
+
+  local host="${HERMES_DASHBOARD_HOST:-0.0.0.0}"
+  local port="${PORT:-${HERMES_DASHBOARD_PORT:-9119}}"
+  local args=(dashboard --host "$host" --port "$port" --no-open)
+
+  if is_true "${HERMES_DASHBOARD_TUI:-true}"; then
+    args+=(--tui)
+  fi
+
+  if is_true "${HERMES_DASHBOARD_INSECURE:-false}"; then
+    args+=(--insecure)
+  fi
+
+  if is_true "${HERMES_DASHBOARD_SKIP_BUILD:-false}"; then
+    args+=(--skip-build)
+  fi
+
+  echo "[bootstrap] Starting Hermes dashboard on ${host}:${port}"
+  hermes "${args[@]}" &
+  DASHBOARD_PID=$!
+  sleep 0.5
+  if ! kill -0 "$DASHBOARD_PID" 2>/dev/null; then
+    echo "[bootstrap] ERROR: Hermes dashboard failed to start." >&2
+    wait "$DASHBOARD_PID" 2>/dev/null || true
     exit 1
   fi
 }
@@ -319,7 +371,12 @@ if ! has_valid_provider_config; then
   exit 1
 fi
 
-validate_platforms
+if gateway_enabled; then
+  validate_platforms
+elif ! dashboard_enabled; then
+  echo "[bootstrap] ERROR: HERMES_GATEWAY_ENABLED=false requires HERMES_DASHBOARD=1 so the container still has a foreground service." >&2
+  exit 1
+fi
 
 migrate_legacy_messaging_cwd
 
@@ -333,7 +390,7 @@ echo "[bootstrap] Writing runtime env to ${ENV_FILE}"
 
 for key in \
   OPENROUTER_API_KEY CUSTOM_BASE_URL CUSTOM_API_KEY OPENAI_API_KEY OPENAI_BASE_URL INFINI_AI_API_KEY ANTHROPIC_API_KEY MINIMAX_API_KEY MINIMAX_BASE_URL MINIMAX_CN_API_KEY MINIMAX_CN_BASE_URL HERMES_MODEL MODEL_NAME HERMES_INFERENCE_PROVIDER HERMES_PORTAL_BASE_URL NOUS_INFERENCE_BASE_URL HERMES_NOUS_MIN_KEY_TTL_SECONDS HERMES_DUMP_REQUESTS \
-  STATUS_PAGE_ENABLED STATUS_PAGE_HOST STATUS_PAGE_PORT PORT \
+  STATUS_PAGE_ENABLED STATUS_PAGE_HOST STATUS_PAGE_PORT PORT HERMES_DASHBOARD HERMES_DASHBOARD_HOST HERMES_DASHBOARD_PORT HERMES_DASHBOARD_TUI HERMES_DASHBOARD_INSECURE HERMES_DASHBOARD_SKIP_BUILD HERMES_DASHBOARD_PUBLIC_URL HERMES_DASHBOARD_OAUTH_CLIENT_ID HERMES_DASHBOARD_PORTAL_URL HERMES_WEB_DIST HERMES_GATEWAY_ENABLED \
   TELEGRAM_BOT_TOKEN TELEGRAM_ALLOWED_USERS TELEGRAM_ALLOW_ALL_USERS TELEGRAM_HOME_CHANNEL TELEGRAM_HOME_CHANNEL_NAME \
   DISCORD_BOT_TOKEN DISCORD_ALLOWED_USERS DISCORD_ALLOW_ALL_USERS DISCORD_HOME_CHANNEL DISCORD_HOME_CHANNEL_NAME DISCORD_REQUIRE_MENTION DISCORD_FREE_RESPONSE_CHANNELS \
   SLACK_BOT_TOKEN SLACK_APP_TOKEN SLACK_ALLOWED_USERS SLACK_ALLOW_ALL_USERS SLACK_HOME_CHANNEL SLACK_HOME_CHANNEL_NAME WHATSAPP_ENABLED WHATSAPP_ALLOWED_USERS \
@@ -357,7 +414,7 @@ else
   echo "[bootstrap] Existing Hermes data found. Skipping one-time init."
 fi
 
-if [[ -z "${TELEGRAM_ALLOWED_USERS:-}${DISCORD_ALLOWED_USERS:-}${SLACK_ALLOWED_USERS:-}${WECOM_ALLOWED_USERS:-}${WECOM_CALLBACK_ALLOWED_USERS:-}${WEIXIN_ALLOWED_USERS:-}${QQ_ALLOWED_USERS:-}" ]]; then
+if gateway_enabled && [[ -z "${TELEGRAM_ALLOWED_USERS:-}${DISCORD_ALLOWED_USERS:-}${SLACK_ALLOWED_USERS:-}${WECOM_ALLOWED_USERS:-}${WECOM_CALLBACK_ALLOWED_USERS:-}${WEIXIN_ALLOWED_USERS:-}${QQ_ALLOWED_USERS:-}" ]]; then
   if ! is_true "${GATEWAY_ALLOW_ALL_USERS:-}" && ! is_true "${TELEGRAM_ALLOW_ALL_USERS:-}" && ! is_true "${DISCORD_ALLOW_ALL_USERS:-}" && ! is_true "${SLACK_ALLOW_ALL_USERS:-}" && ! is_true "${WECOM_ALLOW_ALL_USERS:-}" && ! is_true "${WECOM_CALLBACK_ALLOW_ALL_USERS:-}" && ! is_true "${WEIXIN_ALLOW_ALL_USERS:-}" && ! is_true "${QQ_ALLOW_ALL_USERS:-}"; then
     echo "[bootstrap] WARNING: No allowlists configured. Gateway defaults to deny-all; use DM pairing or set *_ALLOWED_USERS." >&2
   fi
@@ -366,10 +423,28 @@ fi
 trap cleanup EXIT
 trap 'exit 143' TERM INT
 
-start_status_page
+if dashboard_enabled; then
+  start_dashboard
+else
+  start_status_page
+fi
 
-echo "[bootstrap] Starting Hermes gateway..."
-unset MESSAGING_CWD
-hermes gateway &
-GATEWAY_PID=$!
-wait "$GATEWAY_PID"
+if gateway_enabled; then
+  echo "[bootstrap] Starting Hermes gateway..."
+  unset MESSAGING_CWD
+  hermes gateway &
+  GATEWAY_PID=$!
+else
+  echo "[bootstrap] Gateway disabled."
+fi
+
+if [[ -n "${DASHBOARD_PID:-}" && -n "${GATEWAY_PID:-}" ]]; then
+  wait -n "$DASHBOARD_PID" "$GATEWAY_PID"
+elif [[ -n "${DASHBOARD_PID:-}" ]]; then
+  wait "$DASHBOARD_PID"
+elif [[ -n "${GATEWAY_PID:-}" ]]; then
+  wait "$GATEWAY_PID"
+else
+  echo "[bootstrap] ERROR: No foreground process started." >&2
+  exit 1
+fi
