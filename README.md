@@ -1,8 +1,38 @@
-# Hermes Agent Railway 自用部署版
+# Hermes Agent Railway 部署版
 
-这个仓库用于把 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 部署到 Railway。当前用法不是发布 Railway Marketplace 模板，而是你自己在 Railway 里选择 GitHub 仓库 `wsbjj/hermes-railway-template` 部署。
+这个仓库用于把 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 部署到 Railway。
 
-请不要点旧的 Railway Template 页面部署。自用部署入口是：
+现在有两种部署方式：
+
+1. **一键部署（推荐）**：直接用下面的 Railway 模板，点一下就能创建项目、Volume 和环境变量。
+2. **从 GitHub 仓库部署**：在 Railway 里手动选择 GitHub 仓库 `wsbjj/hermes-railway-template`，适合需要改源码或绑定自己分支的场景。
+
+## 一键部署（Railway 模板）
+
+点击下面的按钮，用模板直接部署：
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/DOx7Ru?referralCode=vX8D8t&utm_medium=integration&utm_source=template&utm_campaign=generic)
+
+模板地址：
+
+```text
+https://railway.com/deploy/DOx7Ru?referralCode=vX8D8t&utm_medium=integration&utm_source=template&utm_campaign=generic
+```
+
+一键部署流程：
+
+1. 点击上面的 `Deploy on Railway` 按钮，登录 Railway。
+2. 模板会自动创建服务，并预设好需要的变量占位。
+3. 按下面的[配置方案](#推荐配置qq-bot--无问芯穹)填写自己的模型 key 和机器人凭据。
+4. 确认服务已经挂载 Volume 到 `/data`（模板通常已经预设，如果没有请手动添加，见下一节）。
+5. 点击 `Deploy`，等待构建和启动完成。
+6. 打开 Railway 生成的公网链接，看到 Hermes Railway 状态页即代表部署成功。
+
+> 提示：一键部署完成后，剩下的变量配置、状态页、Dashboard 用法和「从 GitHub 仓库部署」完全一致，可以直接参考本文后面的章节。
+
+## 从 GitHub 仓库部署
+
+如果你想改源码、固定自己的分支，或者不走模板，可以手动从 GitHub 仓库部署：
 
 ```text
 Railway Dashboard -> New Project -> Deploy from GitHub repo -> wsbjj/hermes-railway-template
@@ -17,7 +47,9 @@ Railway Dashboard -> New Project -> Deploy from GitHub repo -> wsbjj/hermes-rail
 - 重点适配你的场景：QQ Bot / 微信 + 无问芯穹 / MiniMax / 自定义 OpenAI 兼容接口。
 - 可选启用 Hermes 官方 Web Dashboard，让 Railway 网页也能直接聊天。
 
-## 快速部署
+## 快速部署（手动从 GitHub 仓库）
+
+> 如果你用上面的[一键部署模板](#一键部署railway-模板)，可以跳过这一节；模板已经帮你创建好服务和 Volume。
 
 1. 打开 Railway Dashboard。
 2. 点击 `New Project`。
@@ -613,3 +645,7 @@ STATUS_PAGE_ENABLED=false
 - https://docs.railway.com
 - https://github.com/NousResearch/hermes-agent
 - https://github.com/NousResearch/hermes-agent/tree/main/website/docs
+
+一键部署模板：
+
+- https://railway.com/deploy/DOx7Ru?referralCode=vX8D8t&utm_medium=integration&utm_source=template&utm_campaign=generic
