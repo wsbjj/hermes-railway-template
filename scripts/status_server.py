@@ -55,6 +55,13 @@ def dashboard_upstream_host_header() -> str:
     return parsed.netloc
 
 
+def dashboard_upstream_origin() -> str:
+    parsed = urlsplit(dashboard_upstream_url())
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}"
+    return ""
+
+
 def dashboard_proxy_enabled() -> bool:
     return bool(dashboard_upstream_url())
 
@@ -445,6 +452,9 @@ class StatusHandler(BaseHTTPRequestHandler):
 
     def websocket_request_bytes(self, target: str) -> bytes:
         upstream_host = dashboard_upstream_host_header()
+        upstream_origin = dashboard_upstream_origin()
+        original_host = self.headers.get("Host", "")
+        original_origin = self.headers.get("Origin", "")
         lines = [f"{self.command} {target} {self.request_version}\r\n"]
         for key, value in self.headers.items():
             lower = key.lower()
@@ -452,12 +462,21 @@ class StatusHandler(BaseHTTPRequestHandler):
                 continue
             # Rewrite Host so the dashboard's Host validation accepts the
             # upgrade request; the original public host is preserved below.
-            if lower == "host":
+            if lower in {"host", "origin", "x-forwarded-host", "x-forwarded-proto"}:
                 continue
             lines.append(f"{key}: {value}\r\n")
         if upstream_host:
             lines.append(f"Host: {upstream_host}\r\n")
-            lines.append(f"X-Forwarded-Host: {self.headers.get('Host', '')}\r\n")
+            lines.append(f"X-Forwarded-Host: {original_host}\r\n")
+        if upstream_origin:
+            # FastAPI HTTP middleware does not run for WebSocket upgrades;
+            # Hermes repeats its Host/Origin guard in the WS route.
+            lines.append(f"Origin: {upstream_origin}\r\n")
+        forwarded_proto = self.headers.get("X-Forwarded-Proto", "")
+        if not forwarded_proto and original_origin:
+            forwarded_proto = urlsplit(original_origin).scheme
+        if forwarded_proto:
+            lines.append(f"X-Forwarded-Proto: {forwarded_proto}\r\n")
         lines.append("\r\n")
         return "".join(lines).encode("iso-8859-1")
 

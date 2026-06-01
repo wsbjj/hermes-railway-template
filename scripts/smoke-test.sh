@@ -197,32 +197,53 @@ PY
 )"
 
   cat > "$tmp/upstream.py" <<'PY'
+import base64
+import hashlib
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 EXPECTED_HOST = sys.argv[2]
+EXPECTED_ORIGIN = f"http://{EXPECTED_HOST}"
 EXPECTED_FORWARDED_HOST = "hermes-railway-template-dev.up.railway.app"
+WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 
 class Handler(BaseHTTPRequestHandler):
-    def do_GET(self):
+    def reject(self, message):
+        body = message.encode("utf-8")
+        self.send_response(400)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def validate_proxy_headers(self):
         host = self.headers.get("Host", "")
         forwarded_host = self.headers.get("X-Forwarded-Host", "")
         if host != EXPECTED_HOST:
-            body = f"invalid host {host}".encode("utf-8")
-            self.send_response(400)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-            return
+            return f"invalid host {host}"
         if forwarded_host != EXPECTED_FORWARDED_HOST:
-            body = f"invalid forwarded host {forwarded_host}".encode("utf-8")
-            self.send_response(400)
-            self.send_header("Content-Type", "text/plain; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
+            return f"invalid forwarded host {forwarded_host}"
+        if self.headers.get("Upgrade", "").lower() == "websocket":
+            origin = self.headers.get("Origin", "")
+            if origin != EXPECTED_ORIGIN:
+                return f"invalid origin {origin}"
+        return ""
+
+    def do_GET(self):
+        error = self.validate_proxy_headers()
+        if error:
+            self.reject(error)
+            return
+
+        if self.headers.get("Upgrade", "").lower() == "websocket":
+            key = self.headers.get("Sec-WebSocket-Key", "")
+            accept = base64.b64encode(hashlib.sha1((key + WS_GUID).encode("ascii")).digest()).decode("ascii")
+            self.send_response(101, "Switching Protocols")
+            self.send_header("Upgrade", "websocket")
+            self.send_header("Connection", "Upgrade")
+            self.send_header("Sec-WebSocket-Accept", accept)
             self.end_headers()
-            self.wfile.write(body)
             return
 
         body = f"upstream {self.path}".encode("utf-8")
@@ -296,6 +317,37 @@ req = urllib.request.Request(
 )
 body = urllib.request.urlopen(req, timeout=2).read().decode("utf-8")
 assert body == "upstream /sessions?check=1", body
+PY
+
+  "$PYTHON_BIN" - "$status_port" <<'PY'
+import base64
+import os
+import socket
+import sys
+
+port = int(sys.argv[1])
+key = base64.b64encode(os.urandom(16)).decode("ascii")
+token = base64.b64encode(b"admin:secret-password").decode("ascii")
+request = "\r\n".join(
+    [
+        "GET /api/pty?token=test&channel=demo HTTP/1.1",
+        "Host: hermes-railway-template-dev.up.railway.app",
+        "Origin: https://hermes-railway-template-dev.up.railway.app",
+        "Upgrade: websocket",
+        "Connection: Upgrade",
+        "Sec-WebSocket-Version: 13",
+        f"Sec-WebSocket-Key: {key}",
+        f"Authorization: Basic {token}",
+        "",
+        "",
+    ]
+).encode("ascii")
+
+with socket.create_connection(("127.0.0.1", port), timeout=2) as sock:
+    sock.sendall(request)
+    response = sock.recv(4096).decode("iso-8859-1")
+
+assert " 101 " in response.split("\r\n", 1)[0], response
 PY
 
   kill "$status_pid" "$upstream_pid" 2>/dev/null || true
