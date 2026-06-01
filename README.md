@@ -42,7 +42,7 @@ Railway Dashboard -> New Project -> Deploy from GitHub repo -> wsbjj/hermes-rail
 
 - 用 Dockerfile 在 Railway 构建指定版本的 Hermes Agent。
 - 用 Railway Volume 持久化 Hermes 状态，固定挂载到 `/data`。
-- 首次启动时自动创建 `/data/.hermes/config.yaml` 和 `/data/.hermes/.env`。
+- 首次启动时自动创建 `/data/.hermes/config.yaml`，每次启动都会按当前变量重写 `/data/.hermes/.env`。
 - 支持 Telegram、Discord、Slack、QQ Bot、企业微信 WeCom、企业微信回调、个人微信 Weixin。
 - 重点适配你的场景：QQ Bot / 微信 + 无问芯穹 / MiniMax / 自定义 OpenAI 兼容接口。
 - 可选启用 Hermes 官方 Web Dashboard，让 Railway 网页也能直接聊天。
@@ -238,8 +238,8 @@ CUSTOM_API_KEY=你的APIKey
 | 变量 | 是否必填 | 建议值 | 说明 |
 | --- | --- | --- | --- |
 | `HERMES_GIT_REF` | 建议填 | `v2026.5.29` | 构建时拉取 Hermes Agent 的 tag 或 commit。 |
-| `HERMES_HOME` | 必填 | `/data/.hermes` | Hermes 状态目录，必须在 Railway Volume 下。 |
-| `HOME` | 必填 | `/data` | 让 Hermes 和相关 CLI 把状态写到 Volume。 |
+| `HERMES_HOME` | 建议保留 | `/data/.hermes` | Hermes 状态目录，默认在 Railway Volume 下。 |
+| `HOME` | 建议保留 | `/data` | 让 Hermes 和相关 CLI 把状态写到 Volume。 |
 | `TERMINAL_CWD` | 可选 | `/data/workspace` | Hermes 终端工作目录，不填则默认 `/data/workspace`。 |
 | `TERMINAL_TIMEOUT` | 可选 | `180` | 终端命令超时时间，单位秒。 |
 | `PORT` | Railway 自动注入 | 不要手动设置 | Railway 公网链接转发到的端口，状态页/前置代理会监听这个端口。 |
@@ -265,7 +265,8 @@ CUSTOM_API_KEY=你的APIKey
 | 变量 | 是否必填 | 说明 |
 | --- | --- | --- |
 | `HERMES_INFERENCE_PROVIDER` | 建议填 | 模型 provider。常用值：`custom`、`minimax`、`minimax-cn`、`openrouter`、`anthropic`。 |
-| `HERMES_MODEL` | 建议填 | 默认模型 ID。入口脚本会在首次启动时写入 `config.yaml`。 |
+| `HERMES_MODEL` | 建议填 | 默认模型 ID。入口脚本会写入或同步到 `config.yaml`。 |
+| `HERMES_INFERENCE_MODEL` | 自动同步 | Dashboard Chat 子进程使用的模型名。通常不用手动填；入口脚本会从 `HERMES_MODEL` 同步。 |
 | `HERMES_TUI_PROVIDER` | 自动同步 | Dashboard Chat 子进程使用的 provider。通常不用手动填；入口脚本会从 `HERMES_INFERENCE_PROVIDER` 同步，避免 `glm-5.1` 这类模型名被 Hermes 自动识别成 `zai`。 |
 | `OPENAI_BASE_URL` | 自定义端点必填 | OpenAI 兼容接口 base URL。 |
 | `OPENAI_API_KEY` | 自定义端点必填 | 自定义端点 API key。 |
@@ -362,15 +363,17 @@ Gateway defaults to deny-all; use DM pairing or set *_ALLOWED_USERS.
 
 入口脚本 `scripts/entrypoint.sh` 会执行：
 
-1. 校验模型 provider 变量。
-2. 如果 `HERMES_GATEWAY_ENABLED=true`，校验至少配置了一个消息平台。
-3. 自动创建 `${HERMES_HOME}` 下的目录。
-4. 首次创建 `${HERMES_HOME}/config.yaml`；如果已有配置，则按 Railway Variables 同步 `model:` 段。
-5. 把 Railway Variables 写入 `${HERMES_HOME}/.env`。
-6. 写入初始化标记 `${HERMES_HOME}/.initialized`。
-7. 如果 `HERMES_DASHBOARD=1`，启动 Hermes 官方 Web Dashboard，默认只监听容器内部 `127.0.0.1:9119`。
-8. 启动轻量状态页/前置代理，监听 Railway 的 `$PORT`；如果没有启用 Dashboard，它只提供状态页。
-9. 如果 `HERMES_GATEWAY_ENABLED=true`，启动 `hermes gateway`。
+1. 设置 `HERMES_HOME`、`HOME` 默认值，并自动创建 `${HERMES_HOME}`、日志、会话、cron、pairing 和终端工作目录。
+2. 归一化自定义接口变量，例如把 `OPENAI_BASE_URL` 同步为 `CUSTOM_BASE_URL`，把无问芯穹 key 同步为 `INFINI_AI_API_KEY`。
+3. 同步 Dashboard Chat 子进程变量：`HERMES_TUI_PROVIDER` 来自 `HERMES_INFERENCE_PROVIDER`，`HERMES_INFERENCE_MODEL` 来自 `HERMES_MODEL`。
+4. 校验模型 provider 变量。
+5. 如果 `HERMES_GATEWAY_ENABLED=true`，校验至少配置了一个消息平台。
+6. 首次创建 `${HERMES_HOME}/config.yaml`；如果已有配置，则按 Railway Variables 同步 `model:` 段。
+7. 每次启动都把当前运行变量写入 `${HERMES_HOME}/.env`。
+8. 首次启动写入初始化标记 `${HERMES_HOME}/.initialized`。
+9. 如果 `HERMES_DASHBOARD=1`，启动 Hermes 官方 Web Dashboard；状态页代理模式下默认只监听容器内部 `127.0.0.1:9119`。
+10. 启动轻量状态页/前置代理，监听 Railway 的 `$PORT`；如果没有启用 Dashboard，它只提供状态页。
+11. 如果 `HERMES_GATEWAY_ENABLED=true`，启动 `hermes gateway`。
 
 如果你设置了：
 
@@ -593,7 +596,7 @@ You are using Node.js 18.20.4. Vite requires Node.js version 20.19+ or 22.12+.
 - OpenRouter：`OPENROUTER_API_KEY`
 - Anthropic：`ANTHROPIC_API_KEY`
 
-如果 Dashboard Chat 报 `Provider 'zai' is set in config.yaml`，但 Railway Variables 和 `/data/.hermes/config.yaml` 都已经是 `provider: custom`，通常是 TUI 子进程按模型名自动识别 provider。重新部署最新版本；入口脚本会同步 `HERMES_TUI_PROVIDER=custom` 来覆盖这个自动识别。
+如果 Dashboard Chat 报 `Provider 'zai' is set in config.yaml`，但 Railway Variables 和 `/data/.hermes/config.yaml` 都已经是 `provider: custom`，通常是 TUI 子进程按模型名自动识别 provider。重新部署最新版本；入口脚本会同步 `HERMES_TUI_PROVIDER=custom` 和 `HERMES_INFERENCE_MODEL=<HERMES_MODEL>` 来覆盖这个自动识别。
 
 ### QQ Bot 启动失败
 
