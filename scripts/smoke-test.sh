@@ -176,6 +176,109 @@ PY
   echo "status page OK"
 }
 
+run_status_page_dashboard_proxy_case() {
+  local tmp status_port upstream_port
+  tmp="$(mktemp -d)"
+
+  read -r status_port upstream_port <<< "$("$PYTHON_BIN" - <<'PY'
+import socket
+
+sockets = []
+ports = []
+for _ in range(2):
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    sockets.append(sock)
+    ports.append(sock.getsockname()[1])
+print(*ports)
+for sock in sockets:
+    sock.close()
+PY
+)"
+
+  cat > "$tmp/upstream.py" <<'PY'
+import sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = f"upstream {self.path}".encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format, *args):
+        return
+
+
+ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), Handler).serve_forever()
+PY
+
+  "$PYTHON_BIN" "$tmp/upstream.py" "$upstream_port" > "$tmp/upstream.out" 2>&1 &
+  local upstream_pid=$!
+
+  PORT="$status_port" \
+    HERMES_DASHBOARD_UPSTREAM_URL="http://127.0.0.1:$upstream_port" \
+    HERMES_DASHBOARD_PROXY_PASSWORD=secret-password \
+    "$PYTHON_BIN" "$ROOT_DIR/scripts/status_server.py" > "$tmp/status.out" 2>&1 &
+  local status_pid=$!
+
+  trap 'kill "$status_pid" "$upstream_pid" 2>/dev/null || true' RETURN
+
+  for _ in $(seq 1 50); do
+    if "$PYTHON_BIN" - "$status_port" <<'PY' >/dev/null 2>&1
+import sys
+import urllib.request
+
+urllib.request.urlopen(f"http://127.0.0.1:{sys.argv[1]}/healthz", timeout=0.2).read()
+PY
+    then
+      break
+    fi
+    sleep 0.1
+  done
+
+  "$PYTHON_BIN" - "$status_port" <<'PY'
+import base64
+import sys
+import urllib.error
+import urllib.request
+
+port = sys.argv[1]
+base = f"http://127.0.0.1:{port}"
+
+health = urllib.request.urlopen(f"{base}/healthz", timeout=2).read().decode("utf-8").strip()
+assert health == "ok", health
+
+page = urllib.request.urlopen(base, timeout=2).read().decode("utf-8")
+assert "/sessions" in page, page
+
+try:
+    urllib.request.urlopen(f"{base}/sessions", timeout=2)
+except urllib.error.HTTPError as exc:
+    assert exc.code == 401, exc.code
+    assert "Basic" in exc.headers.get("WWW-Authenticate", ""), exc.headers
+else:
+    raise AssertionError("dashboard proxy accepted unauthenticated request")
+
+token = base64.b64encode(b"admin:secret-password").decode("ascii")
+req = urllib.request.Request(
+    f"{base}/sessions?check=1",
+    headers={"Authorization": f"Basic {token}"},
+)
+body = urllib.request.urlopen(req, timeout=2).read().decode("utf-8")
+assert body == "upstream /sessions?check=1", body
+PY
+
+  kill "$status_pid" "$upstream_pid" 2>/dev/null || true
+  wait "$status_pid" "$upstream_pid" 2>/dev/null || true
+  trap - RETURN
+  echo "status page dashboard proxy OK"
+}
+
 run_dashboard_case() {
   local name="$1"
   shift
@@ -189,18 +292,46 @@ run_dashboard_case() {
     PORT=19091 \
     HERMES_DASHBOARD=1 \
     HERMES_DASHBOARD_INSECURE=true \
+    HERMES_DASHBOARD_PROXY_PASSWORD=test-password \
     "$@" "$ROOT_DIR/scripts/entrypoint.sh" > "$tmp/out.txt" 2>&1
 
-  grep -q "Starting Hermes dashboard on 0.0.0.0:19091" "$tmp/out.txt"
-  grep -q "fake hermes dashboard --host 0.0.0.0 --port 19091 --no-open --tui --insecure --skip-build" "$tmp/out.txt"
+  grep -q "Starting Hermes dashboard on 127.0.0.1:9119" "$tmp/out.txt"
+  grep -q "Starting status page" "$tmp/out.txt"
+  grep -q "fake hermes dashboard --host 127.0.0.1 --port 9119 --no-open --tui --insecure --skip-build" "$tmp/out.txt"
   grep -q "Starting Hermes gateway" "$tmp/out.txt"
   grep -q "fake hermes gateway" "$tmp/out.txt"
-  if grep -q "Starting status page" "$tmp/out.txt"; then
-    echo "$name unexpectedly started status page" >&2
+  echo "$name OK"
+}
+
+run_dashboard_password_failure_case() {
+  local tmp
+  tmp="$(new_case_dir)"
+
+  set +e
+  PATH="$tmp/bin:$PATH" \
+    HERMES_HOME="$tmp/home/.hermes" \
+    HOME="$tmp/home" \
+    TERMINAL_CWD="$tmp/workspace" \
+    PORT=19094 \
+    HERMES_DASHBOARD=1 \
+    HERMES_DASHBOARD_INSECURE=true \
+    HERMES_GATEWAY_ENABLED=false \
+    FAKE_HERMES_DASHBOARD_SLEEP=1 \
+    HERMES_INFERENCE_PROVIDER=custom \
+    OPENAI_BASE_URL=https://api.example.com/v1 \
+    OPENAI_API_KEY=test-key \
+    "$ROOT_DIR/scripts/entrypoint.sh" > "$tmp/out.txt" 2>&1
+  local code=$?
+  set -e
+
+  if [[ "$code" -eq 0 ]]; then
+    echo "Dashboard proxy without password expected failure but succeeded" >&2
     cat "$tmp/out.txt" >&2
     exit 1
   fi
-  echo "$name OK"
+
+  grep -q "HERMES_DASHBOARD_PROXY_PASSWORD" "$tmp/out.txt"
+  echo "Dashboard proxy password required OK"
 }
 
 run_dashboard_rebuild_case() {
@@ -214,6 +345,7 @@ run_dashboard_rebuild_case() {
     PORT=19093 \
     HERMES_DASHBOARD=1 \
     HERMES_DASHBOARD_INSECURE=true \
+    HERMES_DASHBOARD_PROXY_PASSWORD=test-password \
     HERMES_DASHBOARD_SKIP_BUILD=false \
     HERMES_INFERENCE_PROVIDER=custom \
     OPENAI_BASE_URL=https://api.example.com/v1 \
@@ -223,8 +355,9 @@ run_dashboard_rebuild_case() {
     QQ_ALLOWED_USERS=openid_a \
     "$ROOT_DIR/scripts/entrypoint.sh" > "$tmp/out.txt" 2>&1
 
-  grep -q "Starting Hermes dashboard on 0.0.0.0:19093" "$tmp/out.txt"
-  grep -q "fake hermes dashboard --host 0.0.0.0 --port 19093 --no-open --tui --insecure" "$tmp/out.txt"
+  grep -q "Starting Hermes dashboard on 127.0.0.1:9119" "$tmp/out.txt"
+  grep -q "Starting status page" "$tmp/out.txt"
+  grep -q "fake hermes dashboard --host 127.0.0.1 --port 9119 --no-open --tui --insecure" "$tmp/out.txt"
   if grep -q -- "--skip-build" "$tmp/out.txt"; then
     echo "Dashboard rebuild mode unexpectedly skipped build" >&2
     cat "$tmp/out.txt" >&2
@@ -244,6 +377,7 @@ run_dashboard_only_case() {
     PORT=19092 \
     HERMES_DASHBOARD=1 \
     HERMES_DASHBOARD_INSECURE=true \
+    HERMES_DASHBOARD_PROXY_PASSWORD=test-password \
     HERMES_GATEWAY_ENABLED=false \
     FAKE_HERMES_DASHBOARD_SLEEP=1 \
     HERMES_INFERENCE_PROVIDER=custom \
@@ -251,8 +385,9 @@ run_dashboard_only_case() {
     OPENAI_API_KEY=test-key \
     "$ROOT_DIR/scripts/entrypoint.sh" > "$tmp/out.txt" 2>&1
 
-  grep -q "Starting Hermes dashboard on 0.0.0.0:19092" "$tmp/out.txt"
-  grep -q "fake hermes dashboard --host 0.0.0.0 --port 19092 --no-open --tui --insecure --skip-build" "$tmp/out.txt"
+  grep -q "Starting Hermes dashboard on 127.0.0.1:9119" "$tmp/out.txt"
+  grep -q "Starting status page" "$tmp/out.txt"
+  grep -q "fake hermes dashboard --host 127.0.0.1 --port 9119 --no-open --tui --insecure --skip-build" "$tmp/out.txt"
   grep -q "Gateway disabled" "$tmp/out.txt"
   if grep -q "fake hermes gateway" "$tmp/out.txt"; then
     echo "Dashboard-only mode unexpectedly started gateway" >&2
@@ -337,6 +472,8 @@ run_failure "gateway disabled without dashboard" "HERMES_GATEWAY_ENABLED=false r
 
 run_status_page_case
 
+run_status_page_dashboard_proxy_case
+
 run_dashboard_case "Dashboard with QQ gateway" env \
   HERMES_INFERENCE_PROVIDER=custom \
   OPENAI_BASE_URL=https://api.example.com/v1 \
@@ -344,6 +481,8 @@ run_dashboard_case "Dashboard with QQ gateway" env \
   QQ_APP_ID=app-id \
   QQ_CLIENT_SECRET=secret \
   QQ_ALLOWED_USERS=openid_a
+
+run_dashboard_password_failure_case
 
 run_dashboard_rebuild_case
 

@@ -42,7 +42,7 @@ Railway Dashboard -> New Project -> Deploy from GitHub repo -> wsbjj/hermes-rail
 
 状态页只是部署健康页面，不是聊天 UI。真正聊天仍然通过 QQ Bot、WeCom、Weixin、Telegram、Discord 或 Slack 进行。
 
-如果启用官方 Web Dashboard，Railway 链接会打开 Dashboard，而不是轻量状态页。
+如果启用官方 Web Dashboard，Railway 链接仍会先打开轻量状态页；点击 Dashboard 后会要求输入代理密码再进入 `/sessions`。
 
 ## Railway dev 环境和 GitHub dev 分支
 
@@ -210,17 +210,21 @@ CUSTOM_API_KEY=你的APIKey
 | `HOME` | 必填 | `/data` | 让 Hermes 和相关 CLI 把状态写到 Volume。 |
 | `TERMINAL_CWD` | 可选 | `/data/workspace` | Hermes 终端工作目录，不填则默认 `/data/workspace`。 |
 | `TERMINAL_TIMEOUT` | 可选 | `180` | 终端命令超时时间，单位秒。 |
-| `PORT` | Railway 自动注入 | 不要手动设置 | Railway 公网链接转发到的端口，状态页会监听这个端口。 |
+| `PORT` | Railway 自动注入 | 不要手动设置 | Railway 公网链接转发到的端口，状态页/前置代理会监听这个端口。 |
 | `STATUS_PAGE_ENABLED` | 可选 | `true` | 是否启动轻量状态页；设置为 `false` 可关闭。 |
 | `STATUS_PAGE_HOST` | 可选 | `0.0.0.0` | 状态页监听地址，Railway 上必须能绑定公网流量。 |
 | `STATUS_PAGE_PORT` | 可选 | `8080` | 本地备用端口；Railway 上优先使用 `PORT`。 |
 | `HERMES_GATEWAY_ENABLED` | 可选 | `true` | 是否启动 QQ Bot / WeCom / Weixin 等消息网关；纯 Web Dashboard 测试环境可设为 `false`。 |
 | `HERMES_DASHBOARD` | 可选 | `false` | 设置为 `1` 或 `true` 后启动 Hermes 官方 Web Dashboard。 |
-| `HERMES_DASHBOARD_HOST` | 可选 | `0.0.0.0` | Dashboard 监听地址；Railway 上需要 `0.0.0.0`。 |
-| `HERMES_DASHBOARD_PORT` | 可选 | `9119` | Dashboard 本地备用端口；Railway 上优先使用 `PORT`。 |
+| `HERMES_DASHBOARD_HOST` | 可选 | `0.0.0.0` | 关闭状态页时 Dashboard 直接监听的地址；状态页代理模式下默认改为内部 loopback。 |
+| `HERMES_DASHBOARD_PORT` | 可选 | `9119` | Dashboard 端口；状态页代理模式下作为内部端口使用，公网仍走 `PORT`。 |
+| `HERMES_DASHBOARD_INTERNAL_HOST` | 可选 | `127.0.0.1` | 状态页代理模式下 Dashboard 只绑定到容器内部地址。 |
+| `HERMES_DASHBOARD_INTERNAL_PORT` | 可选 | `9119` | 状态页代理模式下 Dashboard 的内部端口；如果和 `PORT` 冲突会自动避让默认冲突或提示修改。 |
 | `HERMES_DASHBOARD_TUI` | 可选 | `true` | 是否开启 Dashboard 的网页聊天页。 |
 | `HERMES_DASHBOARD_INSECURE` | 可选 | `false` | 跳过 Dashboard OAuth gate；只允许在 dev 测试环境短期使用。 |
 | `HERMES_DASHBOARD_SKIP_BUILD` | 可选 | `true` | 默认使用镜像里预构建好的 Dashboard 静态资源，避免 Railway 启动时重新跑 Vite 构建。需要运行时强制重建时才设为 `false`。 |
+| `HERMES_DASHBOARD_PROXY_USER` | 可选 | `admin` | 状态页代理 Dashboard 时的 Basic Auth 用户名。 |
+| `HERMES_DASHBOARD_PROXY_PASSWORD` | Dashboard + 状态页必填 | 随机强密码 | 保护 `/sessions` 和所有 Dashboard 路径；也兼容 `HERMES_DASHBOARD_PASSWORD`。 |
 | `HERMES_DASHBOARD_PUBLIC_URL` | 公开 Dashboard 建议填 | Railway 公网 URL | OAuth 回调使用的公开 Dashboard 地址。 |
 | `HERMES_DASHBOARD_OAUTH_CLIENT_ID` | 公开 Dashboard 建议填 | Nous Portal client id | 启用官方 OAuth gate，避免公网暴露 `.env`。 |
 
@@ -331,8 +335,8 @@ Gateway defaults to deny-all; use DM pairing or set *_ALLOWED_USERS.
 4. 首次创建 `${HERMES_HOME}/config.yaml`。
 5. 把 Railway Variables 写入 `${HERMES_HOME}/.env`。
 6. 写入初始化标记 `${HERMES_HOME}/.initialized`。
-7. 如果 `HERMES_DASHBOARD=1`，启动 Hermes 官方 Web Dashboard，监听 Railway 的 `$PORT`。
-8. 如果没有启用 Dashboard，启动轻量状态页，监听 Railway 的 `$PORT`。
+7. 如果 `HERMES_DASHBOARD=1`，启动 Hermes 官方 Web Dashboard，默认只监听容器内部 `127.0.0.1:9119`。
+8. 启动轻量状态页/前置代理，监听 Railway 的 `$PORT`；如果没有启用 Dashboard，它只提供状态页。
 9. 如果 `HERMES_GATEWAY_ENABLED=true`，启动 `hermes gateway`。
 
 如果你设置了：
@@ -395,7 +399,12 @@ compression:
 STATUS_PAGE_ENABLED=false
 ```
 
-启用官方 Web Dashboard 时，Dashboard 会占用 Railway 的 `$PORT`，轻量状态页不会启动。
+启用官方 Web Dashboard 且保留状态页时，状态页会继续监听 Railway 的 `$PORT`，并把非状态页路径代理到容器内部的 Dashboard：
+
+- `/`、`/healthz`、`/readyz` 始终由轻量状态页处理，不需要登录，也不会泄漏密钥。
+- `/sessions` 和其他 Dashboard 路径会先要求 Basic Auth 密码，再转发到内部 Dashboard。
+- Dashboard 在代理模式下默认只监听 `127.0.0.1:9119`，不会直接绑定公网端口。
+- 代理模式必须设置 `HERMES_DASHBOARD_PROXY_PASSWORD`；未设置时容器会 fail closed，避免误把 Dashboard 裸露到公网。
 
 ## 官方 Web Dashboard
 
@@ -408,6 +417,8 @@ Hermes 官方 Web Dashboard 是真正的网页 UI。启用 `--tui` 后，Dashboa
 ```env
 HERMES_DASHBOARD=1
 HERMES_DASHBOARD_TUI=1
+HERMES_DASHBOARD_PROXY_USER=admin
+HERMES_DASHBOARD_PROXY_PASSWORD=换成一个随机强密码
 HERMES_DASHBOARD_INSECURE=true
 HERMES_GATEWAY_ENABLED=false
 ```
@@ -419,6 +430,8 @@ HERMES_GATEWAY_ENABLED=false
 ```env
 HERMES_DASHBOARD=1
 HERMES_DASHBOARD_TUI=1
+HERMES_DASHBOARD_PROXY_USER=admin
+HERMES_DASHBOARD_PROXY_PASSWORD=换成一个随机强密码
 HERMES_DASHBOARD_INSECURE=true
 HERMES_GATEWAY_ENABLED=true
 
@@ -430,9 +443,10 @@ QQ_ALLOWED_USERS=你的测试openid
 公网安全提醒：
 
 - Dashboard 会读写 `/data/.hermes/.env`，里面可能有 API key、token、secret。
-- `HERMES_DASHBOARD_INSECURE=true` 会跳过 OAuth gate，并允许公网浏览器连接 Dashboard 的聊天 WebSocket；不要在 production 长期开启。
+- 状态页代理模式下，`/sessions` 和所有 Dashboard 路径都必须先通过 `HERMES_DASHBOARD_PROXY_PASSWORD` 的 Basic Auth。
+- `HERMES_DASHBOARD_INSECURE=true` 会跳过官方 OAuth gate，并允许公网浏览器连接 Dashboard 的聊天 WebSocket；不要在 production 长期开启。即使在 dev 中开启，也仍然必须设置代理密码。
 - production 如果要公开 Dashboard，建议使用 `HERMES_DASHBOARD_OAUTH_CLIENT_ID` 和 `HERMES_DASHBOARD_PUBLIC_URL` 配置官方 OAuth。
-- 如果没有 OAuth，又没有设置 `HERMES_DASHBOARD_INSECURE=true`，Dashboard 在公网绑定时会拒绝启动，这是官方的 fail-closed 行为。
+- 如果关闭状态页代理并让 Dashboard 直接公网绑定，且没有 OAuth 又没有设置 `HERMES_DASHBOARD_INSECURE=true`，Dashboard 会拒绝启动，这是官方的 fail-closed 行为。
 - `HERMES_DASHBOARD_SKIP_BUILD` 默认是 `true`。只有你明确想在容器启动时重新跑 `npm install && npm run build`，才设置为 `false`。
 - Chat 页显示 `[session ended]` 时，先刷新页面再试。如果仍然马上结束，检查 Railway Logs 和 `/data/.hermes/config.yaml`，通常是模型配置不完整或当前部署还没有预构建内嵌 TUI。
 
@@ -525,7 +539,7 @@ You are using Node.js 18.20.4. Vite requires Node.js version 20.19+ or 22.12+.
 
 - Docker build 阶段使用 Node.js 22 预构建 Dashboard。
 - Docker build 阶段同时预构建内嵌聊天 TUI，避免第一次打开 Chat 时临时安装 npm 依赖。
-- `HERMES_DASHBOARD_INSECURE=true` 时同步放行 Dashboard 聊天 WebSocket，适配 Railway dev 环境的公网 URL。
+- `HERMES_DASHBOARD_INSECURE=true` 时同步放行 Dashboard 聊天 WebSocket；公网入口仍由状态页代理层用 Basic Auth 保护。
 - 容器启动 `hermes dashboard` 时默认带 `--skip-build`。
 - 运行时镜像也带 Node.js 22，方便你手动排查。
 

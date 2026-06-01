@@ -4,6 +4,16 @@ set -euo pipefail
 export HERMES_HOME="${HERMES_HOME:-/data/.hermes}"
 export HOME="${HOME:-/data}"
 LEGACY_MESSAGING_CWD="${MESSAGING_CWD:-/data/workspace}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PYTHON_BIN="${PYTHON_BIN:-}"
+
+if [[ -z "$PYTHON_BIN" ]]; then
+  if command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN=python3
+  else
+    PYTHON_BIN=python
+  fi
+fi
 
 INIT_MARKER="${HERMES_HOME}/.initialized"
 ENV_FILE="${HERMES_HOME}/.env"
@@ -54,18 +64,56 @@ dashboard_enabled() {
   is_true "${HERMES_DASHBOARD:-false}"
 }
 
+status_page_enabled() {
+  is_true "${STATUS_PAGE_ENABLED:-true}"
+}
+
+dashboard_proxy_enabled() {
+  dashboard_enabled && status_page_enabled
+}
+
 gateway_enabled() {
   is_true "${HERMES_GATEWAY_ENABLED:-true}"
 }
 
+dashboard_proxy_password() {
+  printf '%s' "${HERMES_DASHBOARD_PROXY_PASSWORD:-${HERMES_DASHBOARD_PASSWORD:-}}"
+}
+
+validate_dashboard_proxy_security() {
+  if ! dashboard_proxy_enabled; then
+    return 0
+  fi
+
+  if [[ -z "$(dashboard_proxy_password)" ]]; then
+    echo "[bootstrap] ERROR: HERMES_DASHBOARD=1 with the public status proxy requires HERMES_DASHBOARD_PROXY_PASSWORD (or HERMES_DASHBOARD_PASSWORD) to protect /sessions and Dashboard paths." >&2
+    exit 1
+  fi
+}
+
+dashboard_internal_port() {
+  local public_port="${PORT:-${STATUS_PAGE_PORT:-8080}}"
+  local internal_port="${HERMES_DASHBOARD_INTERNAL_PORT:-${HERMES_DASHBOARD_PORT:-9119}}"
+
+  if [[ "$internal_port" == "$public_port" ]]; then
+    if [[ -n "${HERMES_DASHBOARD_INTERNAL_PORT:-}${HERMES_DASHBOARD_PORT:-}" ]]; then
+      echo "[bootstrap] ERROR: Dashboard internal port ${internal_port} conflicts with public status port ${public_port}; set HERMES_DASHBOARD_INTERNAL_PORT to a different value." >&2
+      exit 1
+    fi
+    internal_port=9120
+  fi
+
+  printf '%s' "$internal_port"
+}
+
 start_status_page() {
-  if ! is_true "${STATUS_PAGE_ENABLED:-true}"; then
+  if ! status_page_enabled; then
     echo "[bootstrap] Status page disabled."
     return 0
   fi
 
   echo "[bootstrap] Starting status page on ${STATUS_PAGE_HOST:-0.0.0.0}:${PORT:-${STATUS_PAGE_PORT:-8080}}"
-  python /app/scripts/status_server.py &
+  "$PYTHON_BIN" "${STATUS_SERVER_PATH:-${SCRIPT_DIR}/status_server.py}" &
   STATUS_PAGE_PID=$!
   sleep 0.2
   if ! kill -0 "$STATUS_PAGE_PID" 2>/dev/null; then
@@ -82,6 +130,18 @@ start_dashboard() {
 
   local host="${HERMES_DASHBOARD_HOST:-0.0.0.0}"
   local port="${PORT:-${HERMES_DASHBOARD_PORT:-9119}}"
+
+  if dashboard_proxy_enabled; then
+    host="${HERMES_DASHBOARD_INTERNAL_HOST:-127.0.0.1}"
+    port="$(dashboard_internal_port)"
+
+    local upstream_host="$host"
+    if [[ "$upstream_host" == "0.0.0.0" || "$upstream_host" == "::" ]]; then
+      upstream_host="127.0.0.1"
+    fi
+    export HERMES_DASHBOARD_UPSTREAM_URL="http://${upstream_host}:${port}"
+  fi
+
   local args=(dashboard --host "$host" --port "$port" --no-open)
 
   if is_true "${HERMES_DASHBOARD_TUI:-true}"; then
@@ -424,8 +484,11 @@ trap cleanup EXIT
 trap 'exit 143' TERM INT
 
 if dashboard_enabled; then
+  validate_dashboard_proxy_security
   start_dashboard
-else
+fi
+
+if ! dashboard_enabled || dashboard_proxy_enabled; then
   start_status_page
 fi
 
@@ -438,13 +501,20 @@ else
   echo "[bootstrap] Gateway disabled."
 fi
 
-if [[ -n "${DASHBOARD_PID:-}" && -n "${GATEWAY_PID:-}" ]]; then
-  wait -n "$DASHBOARD_PID" "$GATEWAY_PID"
-elif [[ -n "${DASHBOARD_PID:-}" ]]; then
-  wait "$DASHBOARD_PID"
-elif [[ -n "${GATEWAY_PID:-}" ]]; then
-  wait "$GATEWAY_PID"
-else
+PIDS=()
+if [[ -n "${STATUS_PAGE_PID:-}" ]]; then
+  PIDS+=("$STATUS_PAGE_PID")
+fi
+if [[ -n "${DASHBOARD_PID:-}" ]]; then
+  PIDS+=("$DASHBOARD_PID")
+fi
+if [[ -n "${GATEWAY_PID:-}" ]]; then
+  PIDS+=("$GATEWAY_PID")
+fi
+
+if [[ "${#PIDS[@]}" -eq 0 ]]; then
   echo "[bootstrap] ERROR: No foreground process started." >&2
   exit 1
 fi
+
+wait -n "${PIDS[@]}"

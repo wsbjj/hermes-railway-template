@@ -8,20 +8,60 @@ environment values for tokens, keys, user IDs, or secrets here.
 from __future__ import annotations
 
 import html
+import base64
+import hmac
+import http.client
 import json
 import os
+import select
+import socket
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 
 STARTED_AT = time.time()
 HERMES_HOME = Path(os.environ.get("HERMES_HOME", "/data/.hermes"))
+HOP_BY_HOP_HEADERS = {
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+}
 
 
 def is_set(name: str) -> bool:
     return bool(os.environ.get(name, "").strip())
+
+
+def dashboard_upstream_url() -> str:
+    return os.environ.get("HERMES_DASHBOARD_UPSTREAM_URL", "").strip().rstrip("/")
+
+
+def dashboard_proxy_enabled() -> bool:
+    return bool(dashboard_upstream_url())
+
+
+def dashboard_proxy_username() -> str:
+    return (
+        os.environ.get("HERMES_DASHBOARD_PROXY_USER")
+        or os.environ.get("HERMES_DASHBOARD_USER")
+        or "admin"
+    )
+
+
+def dashboard_proxy_password() -> str:
+    return (
+        os.environ.get("HERMES_DASHBOARD_PROXY_PASSWORD")
+        or os.environ.get("HERMES_DASHBOARD_PASSWORD")
+        or ""
+    )
 
 
 def read_model_config() -> dict[str, str]:
@@ -128,6 +168,7 @@ def render_html(payload: dict[str, Any]) -> bytes:
     hermes_home = html.escape(storage["hermes_home"])
     workspace = html.escape(storage["workspace"])
     platform_text = html.escape(enabled_platform_labels(platforms))
+    dashboard_link = '      <a href="/sessions">dashboard</a>\n' if dashboard_proxy_enabled() else ""
 
     html_text = f"""<!doctype html>
 <html lang="en">
@@ -202,6 +243,7 @@ def render_html(payload: dict[str, Any]) -> bytes:
     <div class="links">
       <a href="/healthz">healthz</a>
       <a href="/readyz">readyz</a>
+{dashboard_link.rstrip()}
     </div>
   </main>
 </body>
@@ -214,19 +256,46 @@ class StatusHandler(BaseHTTPRequestHandler):
     server_version = "HermesStatus/1.0"
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib handler API
-        payload = status_payload()
+        self.handle_request()
 
-        if self.path in {"/", "/index.html"}:
+    def do_HEAD(self) -> None:  # noqa: N802 - stdlib handler API
+        self.handle_request()
+
+    def do_POST(self) -> None:  # noqa: N802 - stdlib handler API
+        self.handle_request()
+
+    def do_PUT(self) -> None:  # noqa: N802 - stdlib handler API
+        self.handle_request()
+
+    def do_PATCH(self) -> None:  # noqa: N802 - stdlib handler API
+        self.handle_request()
+
+    def do_DELETE(self) -> None:  # noqa: N802 - stdlib handler API
+        self.handle_request()
+
+    def do_OPTIONS(self) -> None:  # noqa: N802 - stdlib handler API
+        self.handle_request()
+
+    def handle_request(self) -> None:
+        path = self.path.split("?", 1)[0]
+
+        if self.command in {"GET", "HEAD"} and path in {"/", "/index.html"}:
+            payload = status_payload()
             self.respond(200, "text/html; charset=utf-8", render_html(payload))
             return
 
-        if self.path == "/healthz":
+        if self.command in {"GET", "HEAD"} and path == "/healthz":
             self.respond(200, "text/plain; charset=utf-8", b"ok\n")
             return
 
-        if self.path == "/readyz":
+        if self.command in {"GET", "HEAD"} and path == "/readyz":
+            payload = status_payload()
             body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
             self.respond(200, "application/json; charset=utf-8", body)
+            return
+
+        if dashboard_proxy_enabled():
+            self.proxy_dashboard()
             return
 
         self.respond(404, "text/plain; charset=utf-8", b"not found\n")
@@ -237,7 +306,145 @@ class StatusHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(body)
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    def proxy_dashboard(self) -> None:
+        if not dashboard_proxy_password():
+            self.respond(
+                503,
+                "text/plain; charset=utf-8",
+                b"dashboard proxy password is not configured\n",
+            )
+            return
+
+        if not self.has_valid_dashboard_auth():
+            self.request_dashboard_auth()
+            return
+
+        if self.headers.get("Upgrade", "").lower() == "websocket":
+            self.proxy_dashboard_websocket()
+            return
+
+        self.proxy_dashboard_http()
+
+    def has_valid_dashboard_auth(self) -> bool:
+        auth_header = self.headers.get("Authorization", "").strip()
+        expected = "Basic " + base64.b64encode(
+            f"{dashboard_proxy_username()}:{dashboard_proxy_password()}".encode("utf-8")
+        ).decode("ascii")
+        return hmac.compare_digest(auth_header, expected)
+
+    def request_dashboard_auth(self) -> None:
+        body = b"authentication required\n"
+        self.send_response(401)
+        self.send_header(
+            "WWW-Authenticate",
+            'Basic realm="Hermes Dashboard", charset="UTF-8"',
+        )
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    def dashboard_target(self) -> tuple[str, int, str]:
+        parsed = urlsplit(dashboard_upstream_url())
+        if parsed.scheme != "http" or not parsed.hostname:
+            raise ValueError("HERMES_DASHBOARD_UPSTREAM_URL must be an http URL")
+
+        base_path = parsed.path.rstrip("/")
+        target = f"{base_path}{self.path}" if base_path else self.path
+        return parsed.hostname, parsed.port or 80, target
+
+    def proxy_headers(self) -> dict[str, str]:
+        headers: dict[str, str] = {}
+        for key, value in self.headers.items():
+            lower = key.lower()
+            if lower in HOP_BY_HOP_HEADERS or lower == "authorization":
+                continue
+            headers[key] = value
+
+        client_host = self.client_address[0] if self.client_address else ""
+        forwarded_for = self.headers.get("X-Forwarded-For", "")
+        headers["X-Forwarded-For"] = (
+            f"{forwarded_for}, {client_host}" if forwarded_for and client_host else client_host
+        )
+        headers["X-Forwarded-Host"] = self.headers.get("Host", "")
+        headers["X-Forwarded-Proto"] = self.headers.get("X-Forwarded-Proto", "http")
+        return headers
+
+    def proxy_dashboard_http(self) -> None:
+        conn: http.client.HTTPConnection | None = None
+        try:
+            host, port, target = self.dashboard_target()
+            content_length = int(self.headers.get("Content-Length") or "0")
+            body = self.rfile.read(content_length) if content_length > 0 else None
+
+            conn = http.client.HTTPConnection(host, port, timeout=30)
+            conn.request(self.command, target, body=body, headers=self.proxy_headers())
+            response = conn.getresponse()
+            response_body = response.read()
+        except Exception as exc:  # noqa: BLE001 - return a safe public error
+            self.respond(
+                502,
+                "text/plain; charset=utf-8",
+                f"dashboard upstream unavailable: {exc}\n".encode("utf-8"),
+            )
+            return
+        finally:
+            if conn is not None:
+                conn.close()
+
+        self.send_response(response.status, response.reason)
+        for key, value in response.getheaders():
+            lower = key.lower()
+            if lower in HOP_BY_HOP_HEADERS or lower in {"content-length", "server", "date"}:
+                continue
+            self.send_header(key, value)
+        self.send_header("Content-Length", str(len(response_body)))
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(response_body)
+
+    def proxy_dashboard_websocket(self) -> None:
+        self.close_connection = True
+        upstream: socket.socket | None = None
+        try:
+            host, port, target = self.dashboard_target()
+            upstream = socket.create_connection((host, port), timeout=30)
+            upstream.sendall(self.websocket_request_bytes(target))
+            self.relay_sockets(upstream)
+        except Exception:
+            if upstream is None:
+                self.respond(502, "text/plain; charset=utf-8", b"dashboard websocket unavailable\n")
+        finally:
+            if upstream is not None:
+                upstream.close()
+
+    def websocket_request_bytes(self, target: str) -> bytes:
+        lines = [f"{self.command} {target} {self.request_version}\r\n"]
+        for key, value in self.headers.items():
+            if key.lower() == "authorization":
+                continue
+            lines.append(f"{key}: {value}\r\n")
+        lines.append("\r\n")
+        return "".join(lines).encode("iso-8859-1")
+
+    def relay_sockets(self, upstream: socket.socket) -> None:
+        sockets = [self.connection, upstream]
+        for sock in sockets:
+            sock.settimeout(None)
+
+        while True:
+            readable, _, _ = select.select(sockets, [], [], 60)
+            for source in readable:
+                data = source.recv(65536)
+                if not data:
+                    return
+                target = upstream if source is self.connection else self.connection
+                target.sendall(data)
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002 - stdlib name
         return
