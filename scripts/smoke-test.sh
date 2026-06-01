@@ -96,6 +96,29 @@ run_config_case() {
   echo "$name OK"
 }
 
+run_runtime_env_path_case() {
+  local tmp runtime_path
+  tmp="$(new_case_dir)"
+
+  PATH="$tmp/bin:$PATH" \
+    HERMES_HOME="$tmp/home/.hermes" \
+    HOME="$tmp/home" \
+    TERMINAL_CWD="$tmp/workspace" \
+    STATUS_PAGE_ENABLED=false \
+    HERMES_INFERENCE_PROVIDER=custom \
+    OPENAI_BASE_URL=https://api.example.com/v1 \
+    OPENAI_API_KEY=test-key \
+    QQ_APP_ID=app-id \
+    QQ_CLIENT_SECRET=secret \
+    QQ_ALLOWED_USERS=openid_a \
+    "$ROOT_DIR/scripts/entrypoint.sh" > "$tmp/out.txt" 2>&1
+
+  grep -q "^PATH=" "$tmp/home/.hermes/.env"
+  runtime_path="$(grep -E "^PATH=" "$tmp/home/.hermes/.env" | head -n 1 | cut -d '=' -f 2-)"
+  PATH="$runtime_path" command -v hermes >/dev/null
+  echo "runtime env PATH OK"
+}
+
 run_existing_model_config_sync_case() {
   local tmp
   tmp="$(new_case_dir)"
@@ -755,6 +778,7 @@ run_dockerfile_tui_prebuild_case() {
   grep -q "hermes_cli/tui_dist" "$ROOT_DIR/Dockerfile"
   grep -q "hermes-dashboard-insecure-public-ws.patch" "$ROOT_DIR/Dockerfile"
   grep -q "allow_public" "$ROOT_DIR/patches/hermes-dashboard-insecure-public-ws.patch"
+  grep -q "procps" "$ROOT_DIR/Dockerfile"
   echo "Dockerfile TUI prebuild OK"
 }
 
@@ -774,6 +798,8 @@ run_config_case "model config from Railway variables" env \
   QQ_APP_ID=app-id \
   QQ_CLIENT_SECRET=secret \
   QQ_ALLOWED_USERS=openid_a
+
+run_runtime_env_path_case
 
 run_existing_model_config_sync_case
 

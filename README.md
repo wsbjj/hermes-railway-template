@@ -633,6 +633,17 @@ You are using Node.js 18.20.4. Vite requires Node.js version 20.19+ or 22.12+.
 
 如果 Dashboard Chat 报 `Provider 'zai' is set in config.yaml`，但 Railway Variables 和 `/data/.hermes/config.yaml` 都已经是 `provider: custom`，通常是 TUI 子进程按模型名自动识别 provider。重新部署最新版本；入口脚本会同步 `HERMES_TUI_PROVIDER=custom` 和 `HERMES_INFERENCE_MODEL=<HERMES_MODEL>` 来覆盖这个自动识别。
 
+### 终端工具提示命令不存在
+
+如果日志里出现：
+
+```text
+/usr/bin/bash: line 3: hermes: command not found
+/usr/bin/bash: line 3: ps: command not found
+```
+
+重新部署最新镜像。入口脚本会把容器 `PATH` 写入 `/data/.hermes/.env`，让 Hermes 的内部终端工具也能找到 `/opt/venv/bin/hermes`；运行镜像也包含 `procps`，因此 `ps` 可用。
+
 ### QQ Bot 启动失败
 
 检查：

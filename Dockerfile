@@ -56,6 +56,7 @@ RUN apt-get update -o Acquire::Retries=3 \
     curl \
     git \
     gh \
+    procps \
     tini \
   && rm -rf /var/lib/apt/lists/*
 
