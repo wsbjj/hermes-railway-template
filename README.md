@@ -266,6 +266,7 @@ CUSTOM_API_KEY=你的APIKey
 | --- | --- | --- |
 | `HERMES_INFERENCE_PROVIDER` | 建议填 | 模型 provider。常用值：`custom`、`minimax`、`minimax-cn`、`openrouter`、`anthropic`。 |
 | `HERMES_MODEL` | 建议填 | 默认模型 ID。入口脚本会在首次启动时写入 `config.yaml`。 |
+| `HERMES_TUI_PROVIDER` | 自动同步 | Dashboard Chat 子进程使用的 provider。通常不用手动填；入口脚本会从 `HERMES_INFERENCE_PROVIDER` 同步，避免 `glm-5.1` 这类模型名被 Hermes 自动识别成 `zai`。 |
 | `OPENAI_BASE_URL` | 自定义端点必填 | OpenAI 兼容接口 base URL。 |
 | `OPENAI_API_KEY` | 自定义端点必填 | 自定义端点 API key。 |
 | `CUSTOM_BASE_URL` | 可选 | `OPENAI_BASE_URL` 的兼容别名。 |
@@ -591,6 +592,8 @@ You are using Node.js 18.20.4. Vite requires Node.js version 20.19+ or 22.12+.
 - MiniMax 中国区：`MINIMAX_CN_API_KEY`
 - OpenRouter：`OPENROUTER_API_KEY`
 - Anthropic：`ANTHROPIC_API_KEY`
+
+如果 Dashboard Chat 报 `Provider 'zai' is set in config.yaml`，但 Railway Variables 和 `/data/.hermes/config.yaml` 都已经是 `provider: custom`，通常是 TUI 子进程按模型名自动识别 provider。重新部署最新版本；入口脚本会同步 `HERMES_TUI_PROVIDER=custom` 来覆盖这个自动识别。
 
 ### QQ Bot 启动失败
 

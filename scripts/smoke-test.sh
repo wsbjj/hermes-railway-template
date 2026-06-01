@@ -126,6 +126,8 @@ YAML
   grep -q "provider: custom" "$tmp/home/.hermes/config.yaml"
   grep -q "default: glm-5.1" "$tmp/home/.hermes/config.yaml"
   grep -q "base_url: https://cloud.infini-ai.com/maas/coding/v1" "$tmp/home/.hermes/config.yaml"
+  grep -q "HERMES_TUI_PROVIDER=custom" "$tmp/home/.hermes/.env"
+  grep -q "HERMES_INFERENCE_MODEL=glm-5.1" "$tmp/home/.hermes/.env"
   if grep -q "provider: zai" "$tmp/home/.hermes/config.yaml"; then
     echo "existing model config still points at zai" >&2
     cat "$tmp/home/.hermes/config.yaml" >&2
