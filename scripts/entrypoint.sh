@@ -80,13 +80,22 @@ dashboard_proxy_password() {
   printf '%s' "${HERMES_DASHBOARD_PROXY_PASSWORD:-${HERMES_DASHBOARD_PASSWORD:-}}"
 }
 
+dashboard_insecure_enabled() {
+  if [[ "${HERMES_DASHBOARD_INSECURE+x}" == "x" ]]; then
+    is_true "${HERMES_DASHBOARD_INSECURE}"
+    return
+  fi
+
+  dashboard_proxy_enabled
+}
+
 validate_dashboard_proxy_security() {
   if ! dashboard_proxy_enabled; then
     return 0
   fi
 
   if [[ -z "$(dashboard_proxy_password)" ]]; then
-    echo "[bootstrap] ERROR: HERMES_DASHBOARD=1 with the public status proxy requires HERMES_DASHBOARD_PROXY_PASSWORD (or HERMES_DASHBOARD_PASSWORD) to protect /sessions and Dashboard paths." >&2
+    echo "[bootstrap] ERROR: HERMES_DASHBOARD=1 with the public status proxy requires HERMES_DASHBOARD_PROXY_PASSWORD (or HERMES_DASHBOARD_PASSWORD) to protect /, /readyz, /sessions, and Dashboard paths." >&2
     exit 1
   fi
 }
@@ -148,7 +157,7 @@ start_dashboard() {
     args+=(--tui)
   fi
 
-  if is_true "${HERMES_DASHBOARD_INSECURE:-false}"; then
+  if dashboard_insecure_enabled; then
     args+=(--insecure)
   fi
 

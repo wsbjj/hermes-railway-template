@@ -34,6 +34,7 @@ HOP_BY_HOP_HEADERS = {
     "transfer-encoding",
     "upgrade",
 }
+AUTH_REALM = "Hermes Railway"
 
 
 def is_set(name: str) -> bool:
@@ -80,6 +81,14 @@ def dashboard_proxy_password() -> str:
         or os.environ.get("HERMES_DASHBOARD_PASSWORD")
         or ""
     )
+
+
+def status_page_auth_enabled() -> bool:
+    return bool(dashboard_proxy_password())
+
+
+def status_page_auth_required(path: str) -> bool:
+    return status_page_auth_enabled() and path in {"/", "/index.html", "/readyz"}
 
 
 def read_model_config() -> dict[str, str]:
@@ -297,6 +306,11 @@ class StatusHandler(BaseHTTPRequestHandler):
     def handle_request(self) -> None:
         path = self.path.split("?", 1)[0]
 
+        if self.command in {"GET", "HEAD"} and status_page_auth_required(path):
+            if not self.has_valid_proxy_auth():
+                self.request_proxy_auth()
+                return
+
         if self.command in {"GET", "HEAD"} and path in {"/", "/index.html"}:
             payload = status_payload()
             self.respond(200, "text/html; charset=utf-8", render_html(payload))
@@ -336,8 +350,8 @@ class StatusHandler(BaseHTTPRequestHandler):
             )
             return
 
-        if not self.has_valid_dashboard_auth():
-            self.request_dashboard_auth()
+        if not self.has_valid_proxy_auth():
+            self.request_proxy_auth()
             return
 
         if self.headers.get("Upgrade", "").lower() == "websocket":
@@ -346,19 +360,19 @@ class StatusHandler(BaseHTTPRequestHandler):
 
         self.proxy_dashboard_http()
 
-    def has_valid_dashboard_auth(self) -> bool:
+    def has_valid_proxy_auth(self) -> bool:
         auth_header = self.headers.get("Authorization", "").strip()
         expected = "Basic " + base64.b64encode(
             f"{dashboard_proxy_username()}:{dashboard_proxy_password()}".encode("utf-8")
         ).decode("ascii")
         return hmac.compare_digest(auth_header, expected)
 
-    def request_dashboard_auth(self) -> None:
+    def request_proxy_auth(self) -> None:
         body = b"authentication required\n"
         self.send_response(401)
         self.send_header(
             "WWW-Authenticate",
-            'Basic realm="Hermes Dashboard", charset="UTF-8"',
+            f'Basic realm="{AUTH_REALM}", charset="UTF-8"',
         )
         self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))

@@ -336,7 +336,31 @@ base = f"http://127.0.0.1:{port}"
 health = urllib.request.urlopen(f"{base}/healthz", timeout=2).read().decode("utf-8").strip()
 assert health == "ok", health
 
-page = urllib.request.urlopen(base, timeout=2).read().decode("utf-8")
+try:
+    urllib.request.urlopen(base, timeout=2)
+except urllib.error.HTTPError as exc:
+    assert exc.code == 401, exc.code
+    assert exc.headers.get("WWW-Authenticate", "").startswith("Basic "), exc.headers
+else:
+    raise AssertionError("status page accepted unauthenticated request")
+
+try:
+    urllib.request.urlopen(f"{base}/readyz", timeout=2)
+except urllib.error.HTTPError as exc:
+    assert exc.code == 401, exc.code
+else:
+    raise AssertionError("readyz accepted unauthenticated request")
+
+token = base64.b64encode(b"admin:secret-password").decode("ascii")
+ready_req = urllib.request.Request(
+    f"{base}/readyz",
+    headers={"Authorization": f"Basic {token}"},
+)
+ready = urllib.request.urlopen(ready_req, timeout=2).read().decode("utf-8")
+assert '"status": "ok"' in ready, ready
+
+page_req = urllib.request.Request(base, headers={"Authorization": f"Basic {token}"})
+page = urllib.request.urlopen(page_req, timeout=2).read().decode("utf-8")
 assert "/sessions" in page, page
 
 try:
@@ -408,7 +432,6 @@ run_dashboard_case() {
     TERMINAL_CWD="$tmp/workspace" \
     PORT=19091 \
     HERMES_DASHBOARD=1 \
-    HERMES_DASHBOARD_INSECURE=true \
     HERMES_DASHBOARD_PROXY_PASSWORD=test-password \
     "$@" "$ROOT_DIR/scripts/entrypoint.sh" > "$tmp/out.txt" 2>&1
 
