@@ -322,6 +322,10 @@ config_has_model_section() {
   [[ -f "$CONFIG_FILE" ]] && grep -qE '^model:[[:space:]]*$' "$CONFIG_FILE"
 }
 
+model_env_configured() {
+  [[ -n "${HERMES_INFERENCE_PROVIDER:-}${HERMES_MODEL:-}${MODEL_NAME:-}${CUSTOM_BASE_URL:-}${OPENAI_BASE_URL:-}" ]]
+}
+
 write_model_config() {
   local provider="${HERMES_INFERENCE_PROVIDER:-}"
   local model="${HERMES_MODEL:-${MODEL_NAME:-}}"
@@ -347,6 +351,88 @@ write_model_config() {
   fi
 }
 
+sync_model_config_from_env() {
+  if [[ ! -f "$CONFIG_FILE" ]] || ! config_has_model_section || ! model_env_configured; then
+    return 0
+  fi
+
+  echo "[bootstrap] Syncing model config from Railway variables"
+  "$PYTHON_BIN" - "$CONFIG_FILE" <<'PY'
+import os
+import re
+import sys
+from pathlib import Path
+
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8", errors="ignore")
+lines = text.splitlines()
+
+updates = {}
+model = os.environ.get("HERMES_MODEL") or os.environ.get("MODEL_NAME") or ""
+provider = os.environ.get("HERMES_INFERENCE_PROVIDER") or ""
+base_url = os.environ.get("CUSTOM_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or ""
+
+if base_url and not provider:
+    provider = "custom"
+
+if model:
+    updates["default"] = model
+if provider:
+    updates["provider"] = provider
+if base_url:
+    updates["base_url"] = base_url
+
+if not updates:
+    sys.exit(0)
+
+start = next((i for i, line in enumerate(lines) if re.match(r"^model:\s*(#.*)?$", line)), None)
+if start is None:
+    sys.exit(0)
+
+end = len(lines)
+for i in range(start + 1, len(lines)):
+    if re.match(r"^[^\s#][^:]*:", lines[i]):
+        end = i
+        break
+
+block = lines[start + 1 : end]
+indent = "  "
+for line in block:
+    match = re.match(r"^([ \t]+)[A-Za-z0-9_-]+:", line)
+    if match:
+        indent = match.group(1)
+        break
+
+
+def yaml_scalar(value: str) -> str:
+    if re.match(r"^[A-Za-z0-9._:/@?&=+,%~-]+$", value):
+        return value
+    return "'" + value.replace("'", "''") + "'"
+
+
+seen = set()
+new_block = []
+drop_stale_secret_keys = bool(base_url or provider)
+for line in block:
+    match = re.match(r"^([ \t]+)([A-Za-z0-9_-]+):(.*)$", line)
+    if match and match.group(2) in updates:
+        key = match.group(2)
+        new_block.append(f"{match.group(1)}{key}: {yaml_scalar(updates[key])}")
+        seen.add(key)
+        continue
+    if drop_stale_secret_keys and match and match.group(2) in {"api", "api_key"}:
+        continue
+    new_block.append(line)
+
+for key in ("default", "provider", "base_url"):
+    if key in updates and key not in seen:
+        new_block.append(f"{indent}{key}: {yaml_scalar(updates[key])}")
+
+path.write_text("\n".join(lines[: start + 1] + new_block + lines[end:]) + "\n", encoding="utf-8")
+PY
+}
+
 create_default_config() {
   echo "[bootstrap] Creating ${CONFIG_FILE}"
   {
@@ -364,11 +450,16 @@ EOF
 }
 
 ensure_model_in_config() {
-  if [[ ! -f "$CONFIG_FILE" || config_has_model_section ]]; then
+  if [[ ! -f "$CONFIG_FILE" ]]; then
     return 0
   fi
 
-  if [[ -n "${HERMES_INFERENCE_PROVIDER:-}${HERMES_MODEL:-}${MODEL_NAME:-}${CUSTOM_BASE_URL:-}${OPENAI_BASE_URL:-}" ]]; then
+  if config_has_model_section; then
+    sync_model_config_from_env
+    return 0
+  fi
+
+  if model_env_configured; then
     {
       printf '\n'
       write_model_config

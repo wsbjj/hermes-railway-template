@@ -96,6 +96,44 @@ run_config_case() {
   echo "$name OK"
 }
 
+run_existing_model_config_sync_case() {
+  local tmp
+  tmp="$(new_case_dir)"
+  mkdir -p "$tmp/home/.hermes"
+  cat > "$tmp/home/.hermes/config.yaml" <<'YAML'
+model:
+  default: glm-5.1
+  provider: zai
+  base_url: https://api.z.ai/api/paas/v4
+terminal:
+  cwd: /old/workspace
+YAML
+
+  PATH="$tmp/bin:$PATH" \
+    HERMES_HOME="$tmp/home/.hermes" \
+    HOME="$tmp/home" \
+    TERMINAL_CWD="$tmp/workspace" \
+    STATUS_PAGE_ENABLED=false \
+    HERMES_INFERENCE_PROVIDER=custom \
+    HERMES_MODEL=glm-5.1 \
+    OPENAI_BASE_URL=https://cloud.infini-ai.com/maas/coding/v1 \
+    OPENAI_API_KEY=test-key \
+    QQ_APP_ID=app-id \
+    QQ_CLIENT_SECRET=secret \
+    QQ_ALLOWED_USERS=openid_a \
+    "$ROOT_DIR/scripts/entrypoint.sh" > "$tmp/out.txt" 2>&1
+
+  grep -q "provider: custom" "$tmp/home/.hermes/config.yaml"
+  grep -q "default: glm-5.1" "$tmp/home/.hermes/config.yaml"
+  grep -q "base_url: https://cloud.infini-ai.com/maas/coding/v1" "$tmp/home/.hermes/config.yaml"
+  if grep -q "provider: zai" "$tmp/home/.hermes/config.yaml"; then
+    echo "existing model config still points at zai" >&2
+    cat "$tmp/home/.hermes/config.yaml" >&2
+    exit 1
+  fi
+  echo "existing model config sync OK"
+}
+
 run_status_page_case() {
   local tmp port
   tmp="$(mktemp -d)"
@@ -498,6 +536,8 @@ run_config_case "model config from Railway variables" env \
   QQ_APP_ID=app-id \
   QQ_CLIENT_SECRET=secret \
   QQ_ALLOWED_USERS=openid_a
+
+run_existing_model_config_sync_case
 
 run_success "QQ InfiniAI via CUSTOM_BASE_URL" env \
   HERMES_INFERENCE_PROVIDER=custom \

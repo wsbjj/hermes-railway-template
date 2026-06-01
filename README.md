@@ -364,7 +364,7 @@ Gateway defaults to deny-all; use DM pairing or set *_ALLOWED_USERS.
 1. 校验模型 provider 变量。
 2. 如果 `HERMES_GATEWAY_ENABLED=true`，校验至少配置了一个消息平台。
 3. 自动创建 `${HERMES_HOME}` 下的目录。
-4. 首次创建 `${HERMES_HOME}/config.yaml`。
+4. 首次创建 `${HERMES_HOME}/config.yaml`；如果已有配置，则按 Railway Variables 同步 `model:` 段。
 5. 把 Railway Variables 写入 `${HERMES_HOME}/.env`。
 6. 写入初始化标记 `${HERMES_HOME}/.initialized`。
 7. 如果 `HERMES_DASHBOARD=1`，启动 Hermes 官方 Web Dashboard，默认只监听容器内部 `127.0.0.1:9119`。
@@ -395,7 +395,7 @@ compression:
   threshold: 0.85
 ```
 
-如果 `/data/.hermes/config.yaml` 已经存在并且已有 `model:` 段，脚本不会覆盖它。
+如果 `/data/.hermes/config.yaml` 已经存在并且已有 `model:` 段，只要 Railway Variables 里显式设置了 `HERMES_INFERENCE_PROVIDER`、`HERMES_MODEL`、`OPENAI_BASE_URL` 或 `CUSTOM_BASE_URL`，启动脚本会同步 `model.default`、`model.provider` 和 `model.base_url`。这样重新部署后，旧 Volume 里残留的 provider 不会继续压过 Railway Variables。
 
 ## 轻量状态页
 
@@ -484,13 +484,13 @@ QQ_ALLOWED_USERS=你的测试openid
 
 ## 修改模型或 provider
 
-首次部署前，直接改 Railway Variables 最方便。
+直接改 Railway Variables 最方便；重新部署后，入口脚本会把模型相关变量同步到持久化的 `/data/.hermes/config.yaml`。
 
 部署后如果你要换模型，有三种方式：
 
-1. 在 Hermes 聊天中使用 `/model ... --global` 持久化。
-2. 通过 Railway SSH 编辑 `/data/.hermes/config.yaml`。
-3. 如果只是测试环境，删除 Volume 里的 `/data/.hermes/config.yaml` 后重新部署，让脚本按 Variables 重建。
+1. 修改 Railway Variables，然后重新部署，让入口脚本同步 `model:` 段。
+2. 在 Hermes 聊天中使用 `/model ... --global` 持久化；如果 Railway Variables 里仍设置了模型字段，下次部署会再次以 Variables 为准。
+3. 通过 Railway SSH 编辑 `/data/.hermes/config.yaml`；如果只是测试环境，也可以删除该文件后重新部署，让脚本按 Variables 重建。
 
 不要在 Railway 里直接运行 `hermes update` 更新程序本体。更新 Hermes 版本应修改：
 
