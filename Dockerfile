@@ -24,7 +24,7 @@ RUN test -n "${HERMES_GIT_REF}" \
   && git -C /opt/hermes-agent submodule update --init --recursive --depth 1
 
 COPY patches/ /tmp/hermes-patches/
-RUN git -C /opt/hermes-agent apply /tmp/hermes-patches/hermes-dashboard-insecure-public-ws.patch
+RUN for patch in /tmp/hermes-patches/*.patch; do git -C /opt/hermes-agent apply --unidiff-zero "$patch"; done
 
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
@@ -36,6 +36,13 @@ RUN cd /opt/hermes-agent/web \
   && npm ci \
   && npm run build \
   && rm -rf node_modules /root/.npm
+
+RUN xterm_tgz="$(npm pack --silent @xterm/xterm@5.5.0 --pack-destination /tmp)" \
+  && mkdir -p /tmp/xterm-package /opt/hermes-agent/hermes_railway_static/xterm \
+  && tar -xzf "/tmp/${xterm_tgz}" -C /tmp/xterm-package --strip-components=1 \
+  && cp /tmp/xterm-package/lib/xterm.js /opt/hermes-agent/hermes_railway_static/xterm/xterm.js \
+  && cp /tmp/xterm-package/css/xterm.css /opt/hermes-agent/hermes_railway_static/xterm/xterm.css \
+  && rm -rf /tmp/xterm-package "/tmp/${xterm_tgz}" /root/.npm
 
 RUN cd /opt/hermes-agent/ui-tui \
   && npm ci \
@@ -57,6 +64,7 @@ RUN apt-get update -o Acquire::Retries=3 \
     git \
     gh \
     procps \
+    tzdata \
     tini \
   && rm -rf /var/lib/apt/lists/*
 

@@ -114,6 +114,8 @@ run_runtime_env_path_case() {
     "$ROOT_DIR/scripts/entrypoint.sh" > "$tmp/out.txt" 2>&1
 
   grep -q "^PATH=" "$tmp/home/.hermes/.env"
+  grep -q "^TZ=Asia/Shanghai" "$tmp/home/.hermes/.env"
+  grep -q "^HERMES_TIMEZONE=Asia/Shanghai" "$tmp/home/.hermes/.env"
   runtime_path="$(grep -E "^PATH=" "$tmp/home/.hermes/.env" | head -n 1 | cut -d '=' -f 2-)"
   PATH="$runtime_path" command -v hermes >/dev/null
   echo "runtime env PATH OK"
@@ -340,7 +342,7 @@ PY
 import sys
 import urllib.request
 
-urllib.request.urlopen(f"http://127.0.0.1:{sys.argv[1]}/healthz", timeout=0.2).read()
+urllib.request.urlopen(f"http://127.0.0.1:{sys.argv[1]}/login", timeout=0.2).read()
 PY
     then
       break
@@ -350,57 +352,90 @@ PY
 
   "$PYTHON_BIN" - "$status_port" <<'PY'
 import base64
+import hashlib
+import hmac
+import http.cookiejar
+import json
 import sys
 import urllib.error
 import urllib.request
+import urllib.parse
 
 port = sys.argv[1]
 base = f"http://127.0.0.1:{port}"
-opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+jar = http.cookiejar.CookieJar()
+opener = urllib.request.build_opener(
+    urllib.request.ProxyHandler({}),
+    urllib.request.HTTPCookieProcessor(jar),
+)
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+no_redirect = urllib.request.build_opener(
+    urllib.request.ProxyHandler({}),
+    NoRedirect,
+)
+
+def assert_login_required(path):
+    try:
+        no_redirect.open(f"{base}{path}", timeout=2)
+    except urllib.error.HTTPError as exc:
+        assert exc.code in {302, 303, 401}, (path, exc.code, exc.headers)
+        assert "WWW-Authenticate" not in exc.headers, exc.headers
+        if exc.code in {302, 303}:
+            assert "/login" in exc.headers.get("Location", ""), exc.headers
+    else:
+        raise AssertionError(f"{path} accepted unauthenticated request")
+
+for path in ("/", "/healthz", "/readyz", "/sessions", "/terminal"):
+    assert_login_required(path)
+
+login_page = opener.open(f"{base}/login", timeout=2).read().decode("utf-8")
+assert "Hermes Railway" in login_page and "password" in login_page.lower(), login_page
+login_body = urllib.parse.urlencode(
+    {"username": "admin", "password": "secret-password", "next": "/"}
+).encode("utf-8")
+login_req = urllib.request.Request(
+    f"{base}/login",
+    data=login_body,
+    headers={"Content-Type": "application/x-www-form-urlencoded"},
+    method="POST",
+)
+page_after_login = opener.open(login_req, timeout=2).read().decode("utf-8")
+assert "Hermes Railway" in page_after_login, page_after_login
+assert any(cookie.name == "hermes_status_session" for cookie in jar), list(jar)
+
+def b64url(data):
+    return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
+
+payload = b64url(json.dumps({"u": "admin", "exp": 1}, separators=(",", ":"), sort_keys=True).encode("utf-8"))
+signature = b64url(hmac.new(b"secret-password", payload.encode("ascii"), hashlib.sha256).digest())
+expired_req = urllib.request.Request(
+    base,
+    headers={"Cookie": f"hermes_status_session={payload}.{signature}"},
+)
+try:
+    no_redirect.open(expired_req, timeout=2)
+except urllib.error.HTTPError as exc:
+    assert exc.code in {302, 303, 401}, exc.code
+    assert "WWW-Authenticate" not in exc.headers, exc.headers
+else:
+    raise AssertionError("expired status cookie accepted request")
 
 health = opener.open(f"{base}/healthz", timeout=2).read().decode("utf-8").strip()
 assert health == "ok", health
 
-try:
-    opener.open(base, timeout=2)
-except urllib.error.HTTPError as exc:
-    assert exc.code == 401, exc.code
-    assert exc.headers.get("WWW-Authenticate", "").startswith("Basic "), exc.headers
-else:
-    raise AssertionError("status page accepted unauthenticated request")
-
-try:
-    opener.open(f"{base}/readyz", timeout=2)
-except urllib.error.HTTPError as exc:
-    assert exc.code == 401, exc.code
-else:
-    raise AssertionError("readyz accepted unauthenticated request")
-
-token = base64.b64encode(b"admin:secret-password").decode("ascii")
-ready_req = urllib.request.Request(
-    f"{base}/readyz",
-    headers={"Authorization": f"Basic {token}"},
-)
-ready = opener.open(ready_req, timeout=2).read().decode("utf-8")
+ready = opener.open(f"{base}/readyz", timeout=2).read().decode("utf-8")
 assert '"status": "ok"' in ready, ready
 
-page_req = urllib.request.Request(base, headers={"Authorization": f"Basic {token}"})
-page = opener.open(page_req, timeout=2).read().decode("utf-8")
+page = opener.open(base, timeout=2).read().decode("utf-8")
 assert "/sessions" in page, page
 
-try:
-    opener.open(f"{base}/sessions", timeout=2)
-except urllib.error.HTTPError as exc:
-    assert exc.code == 401, exc.code
-    assert "Basic" in exc.headers.get("WWW-Authenticate", ""), exc.headers
-else:
-    raise AssertionError("dashboard proxy accepted unauthenticated request")
-
-token = base64.b64encode(b"admin:secret-password").decode("ascii")
 req = urllib.request.Request(
     f"{base}/sessions?check=1",
     headers={
-        "Authorization": f"Basic {token}",
         "Host": "hermes-railway-template-dev.up.railway.app",
     },
 )
@@ -410,13 +445,34 @@ PY
 
   "$PYTHON_BIN" - "$status_port" <<'PY'
 import base64
+import http.cookiejar
 import os
 import socket
 import sys
+import urllib.parse
+import urllib.request
 
 port = int(sys.argv[1])
+base = f"http://127.0.0.1:{port}"
+jar = http.cookiejar.CookieJar()
+opener = urllib.request.build_opener(
+    urllib.request.ProxyHandler({}),
+    urllib.request.HTTPCookieProcessor(jar),
+)
+login_body = urllib.parse.urlencode(
+    {"username": "admin", "password": "secret-password", "next": "/"}
+).encode("utf-8")
+opener.open(
+    urllib.request.Request(
+        f"{base}/login",
+        data=login_body,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    ),
+    timeout=2,
+).read()
+cookie_header = "; ".join(f"{c.name}={c.value}" for c in jar)
 key = base64.b64encode(os.urandom(16)).decode("ascii")
-token = base64.b64encode(b"admin:secret-password").decode("ascii")
 request = "\r\n".join(
     [
         "GET /api/pty?token=test&channel=demo HTTP/1.1",
@@ -426,7 +482,7 @@ request = "\r\n".join(
         "Connection: Upgrade",
         "Sec-WebSocket-Version: 13",
         f"Sec-WebSocket-Key: {key}",
-        f"Authorization: Basic {token}",
+        f"Cookie: {cookie_header}",
         "",
         "",
     ]
@@ -483,7 +539,7 @@ import sys
 import urllib.request
 
 opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-opener.open(f"http://127.0.0.1:{sys.argv[1]}/healthz", timeout=0.2).read()
+opener.open(f"http://127.0.0.1:{sys.argv[1]}/login", timeout=0.2).read()
 PY
     then
       break
@@ -493,15 +549,33 @@ PY
 
   "$PYTHON_BIN" - "$port" "$tmp/workspace" <<'PY'
 import base64
+import http.cookiejar
 import json
+import os
+import socket
+import struct
 import sys
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 port, workspace = sys.argv[1:3]
 base = f"http://127.0.0.1:{port}"
-opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-token = base64.b64encode(b"admin:secret-password").decode("ascii")
+jar = http.cookiejar.CookieJar()
+opener = urllib.request.build_opener(
+    urllib.request.ProxyHandler({}),
+    urllib.request.HTTPCookieProcessor(jar),
+)
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+no_redirect = urllib.request.build_opener(
+    urllib.request.ProxyHandler({}),
+    NoRedirect,
+)
 
 try:
     opener.open(f"{base}/api/terminal/run", data=b'{"command":"pwd"}', timeout=2)
@@ -510,17 +584,42 @@ except urllib.error.HTTPError as exc:
 else:
     raise AssertionError("terminal API accepted unauthenticated request")
 
-page_req = urllib.request.Request(base, headers={"Authorization": f"Basic {token}"})
-page = opener.open(page_req, timeout=2).read().decode("utf-8")
+key = base64.b64encode(os.urandom(16)).decode("ascii")
+unauth_ws = "\r\n".join(
+    [
+        "GET /api/terminal/ws HTTP/1.1",
+        f"Host: 127.0.0.1:{port}",
+        "Upgrade: websocket",
+        "Connection: Upgrade",
+        "Sec-WebSocket-Version: 13",
+        f"Sec-WebSocket-Key: {key}",
+        "",
+        "",
+    ]
+).encode("ascii")
+with socket.create_connection(("127.0.0.1", int(port)), timeout=2) as sock:
+    sock.sendall(unauth_ws)
+    response = sock.recv(4096).decode("iso-8859-1")
+assert " 101 " not in response.split("\r\n", 1)[0], response
+
+login_body = urllib.parse.urlencode(
+    {"username": "admin", "password": "secret-password", "next": "/terminal"}
+).encode("utf-8")
+login_req = urllib.request.Request(
+    f"{base}/login",
+    data=login_body,
+    headers={"Content-Type": "application/x-www-form-urlencoded"},
+    method="POST",
+)
+page = opener.open(login_req, timeout=2).read().decode("utf-8")
 assert 'id="terminal-panel"' in page, page
 assert 'data-i18n="terminal.title"' in page, page
 assert 'data-language-toggle' in page, page
+assert "/assets/xterm/xterm.css" in page, page
+assert "/assets/xterm/xterm.js" in page, page
+assert "/api/terminal/ws" in page, page
 
-terminal_req = urllib.request.Request(
-    f"{base}/terminal",
-    headers={"Authorization": f"Basic {token}"},
-)
-terminal_page = opener.open(terminal_req, timeout=2).read().decode("utf-8")
+terminal_page = opener.open(f"{base}/terminal", timeout=2).read().decode("utf-8")
 assert 'id="terminal-panel"' in terminal_page, terminal_page
 
 payload = json.dumps(
@@ -530,7 +629,6 @@ run_req = urllib.request.Request(
     f"{base}/api/terminal/run",
     data=payload,
     headers={
-        "Authorization": f"Basic {token}",
         "Content-Type": "application/json",
     },
     method="POST",
@@ -548,7 +646,6 @@ timeout_req = urllib.request.Request(
     f"{base}/api/terminal/run",
     data=payload,
     headers={
-        "Authorization": f"Basic {token}",
         "Content-Type": "application/json",
     },
     method="POST",
@@ -558,6 +655,105 @@ assert timeout_result["exit_code"] == 124, timeout_result
 assert timeout_result["timed_out"] is True, timeout_result
 assert "before-timeout" in timeout_result["stdout"], timeout_result
 assert "command timed out after 1s" in timeout_result["stderr"], timeout_result
+
+cookie_header = "; ".join(f"{c.name}={c.value}" for c in jar)
+
+def send_frame(sock, text):
+    payload = text.encode("utf-8")
+    mask = os.urandom(4)
+    header = bytearray([0x81])
+    length = len(payload)
+    if length < 126:
+        header.append(0x80 | length)
+    elif length < 65536:
+        header.append(0x80 | 126)
+        header.extend(struct.pack("!H", length))
+    else:
+        header.append(0x80 | 127)
+        header.extend(struct.pack("!Q", length))
+    masked = bytes(byte ^ mask[i % 4] for i, byte in enumerate(payload))
+    sock.sendall(bytes(header) + mask + masked)
+
+def read_frame(sock):
+    first = sock.recv(2)
+    if len(first) < 2:
+        raise AssertionError("websocket closed")
+    b1, b2 = first
+    opcode = b1 & 0x0F
+    length = b2 & 0x7F
+    if length == 126:
+        length = struct.unpack("!H", sock.recv(2))[0]
+    elif length == 127:
+        length = struct.unpack("!Q", sock.recv(8))[0]
+    mask = b""
+    if b2 & 0x80:
+        mask = sock.recv(4)
+    data = bytearray()
+    while len(data) < length:
+        chunk = sock.recv(length - len(data))
+        if not chunk:
+            raise AssertionError("websocket frame truncated")
+        data.extend(chunk)
+    if mask:
+        data = bytearray(byte ^ mask[i % 4] for i, byte in enumerate(data))
+    return opcode, bytes(data)
+
+def read_until_pred(sock, predicate, label, timeout=5.0):
+    deadline = time.time() + timeout
+    text = ""
+    while time.time() < deadline:
+        sock.settimeout(max(0.1, deadline - time.time()))
+        try:
+            opcode, payload = read_frame(sock)
+        except (socket.timeout, TimeoutError):
+            break
+        if opcode in {1, 2}:
+            text += payload.decode("utf-8", errors="replace")
+            if predicate(text):
+                return text
+        elif opcode == 8:
+            raise AssertionError(f"websocket closed before {label!r}: {text!r}")
+    raise AssertionError(f"missing {label!r} in PTY output: {text!r}")
+
+def read_until(sock, marker, timeout=5.0):
+    return read_until_pred(sock, lambda text: marker in text, marker, timeout)
+
+key = base64.b64encode(os.urandom(16)).decode("ascii")
+request = "\r\n".join(
+    [
+        "GET /api/terminal/ws HTTP/1.1",
+        f"Host: 127.0.0.1:{port}",
+        "Upgrade: websocket",
+        "Connection: Upgrade",
+        "Sec-WebSocket-Version: 13",
+        f"Sec-WebSocket-Key: {key}",
+        f"Cookie: {cookie_header}",
+        "",
+        "",
+    ]
+).encode("ascii")
+with socket.create_connection(("127.0.0.1", int(port)), timeout=2) as sock:
+    sock.sendall(request)
+    response = sock.recv(4096).decode("iso-8859-1")
+    assert " 101 " in response.split("\r\n", 1)[0], response
+    send_frame(sock, "printf 'HERMES_PTY_CWD:%s\\n' \"$PWD\"\n")
+    expected_workspaces = {workspace, os.path.realpath(workspace)}
+    out = read_until_pred(
+        sock,
+        lambda text: any(f"HERMES_PTY_CWD:{cwd}" in text for cwd in expected_workspaces),
+        "HERMES_PTY_CWD:<workspace>",
+    )
+    assert any(f"HERMES_PTY_CWD:{cwd}" in out for cwd in expected_workspaces), out
+    send_frame(sock, "cd /\nprintf 'HERMES_PTY_AFTER_CD:%s\\n' \"$PWD\"\n")
+    out = read_until(sock, "HERMES_PTY_AFTER_CD:/")
+    assert "HERMES_PTY_AFTER_CD:/" in out, out
+    send_frame(sock, "\x1b[RESIZE:100;30]")
+    send_frame(sock, "sleep 5\n")
+    time.sleep(0.2)
+    send_frame(sock, "\x03")
+    send_frame(sock, "printf 'HERMES_PTY_CTRL_C\\n'\n")
+    out = read_until(sock, "HERMES_PTY_CTRL_C")
+    assert "HERMES_PTY_CTRL_C" in out, out
 PY
 
   kill "$pid" 2>/dev/null || true
@@ -597,7 +793,7 @@ import sys
 import urllib.request
 
 opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-opener.open(f"http://127.0.0.1:{sys.argv[1]}/healthz", timeout=0.2).read()
+opener.open(f"http://127.0.0.1:{sys.argv[1]}/login", timeout=0.2).read()
 PY
     then
       break
@@ -606,25 +802,39 @@ PY
   done
 
   "$PYTHON_BIN" - "$port" <<'PY'
-import base64
+import http.cookiejar
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 port = sys.argv[1]
 base = f"http://127.0.0.1:{port}"
-opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-token = base64.b64encode(b"admin:secret-password").decode("ascii")
+jar = http.cookiejar.CookieJar()
+opener = urllib.request.build_opener(
+    urllib.request.ProxyHandler({}),
+    urllib.request.HTTPCookieProcessor(jar),
+)
+login_body = urllib.parse.urlencode(
+    {"username": "admin", "password": "secret-password", "next": "/"}
+).encode("utf-8")
+opener.open(
+    urllib.request.Request(
+        f"{base}/login",
+        data=login_body,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        method="POST",
+    ),
+    timeout=2,
+).read()
 
-page_req = urllib.request.Request(base, headers={"Authorization": f"Basic {token}"})
-page = opener.open(page_req, timeout=2).read().decode("utf-8")
+page = opener.open(base, timeout=2).read().decode("utf-8")
 assert 'id="terminal-panel"' not in page, page
 
 api_req = urllib.request.Request(
     f"{base}/api/terminal/run",
     data=b'{"command":"pwd"}',
     headers={
-        "Authorization": f"Basic {token}",
         "Content-Type": "application/json",
     },
     method="POST",
@@ -637,13 +847,7 @@ else:
     raise AssertionError("disabled terminal API accepted request")
 
 try:
-    opener.open(
-        urllib.request.Request(
-            f"{base}/terminal",
-            headers={"Authorization": f"Basic {token}"},
-        ),
-        timeout=2,
-    )
+    opener.open(f"{base}/terminal", timeout=2)
 except urllib.error.HTTPError as exc:
     assert exc.code == 404, exc.code
 else:
@@ -776,9 +980,13 @@ run_dashboard_only_case() {
 run_dockerfile_tui_prebuild_case() {
   grep -q "ui-tui" "$ROOT_DIR/Dockerfile"
   grep -q "hermes_cli/tui_dist" "$ROOT_DIR/Dockerfile"
-  grep -q "hermes-dashboard-insecure-public-ws.patch" "$ROOT_DIR/Dockerfile"
+  grep -q "/tmp/hermes-patches/.*\\.patch" "$ROOT_DIR/Dockerfile"
   grep -q "allow_public" "$ROOT_DIR/patches/hermes-dashboard-insecure-public-ws.patch"
+  test -f "$ROOT_DIR/patches/hermes-media-md-attachments.patch"
+  grep -q "md|" "$ROOT_DIR/patches/hermes-media-md-attachments.patch"
   grep -q "procps" "$ROOT_DIR/Dockerfile"
+  grep -q "tzdata" "$ROOT_DIR/Dockerfile"
+  grep -q "xterm.js" "$ROOT_DIR/Dockerfile"
   echo "Dockerfile TUI prebuild OK"
 }
 
