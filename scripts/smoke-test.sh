@@ -200,9 +200,31 @@ PY
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+EXPECTED_HOST = sys.argv[2]
+EXPECTED_FORWARDED_HOST = "hermes-railway-template-dev.up.railway.app"
+
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
+        host = self.headers.get("Host", "")
+        forwarded_host = self.headers.get("X-Forwarded-Host", "")
+        if host != EXPECTED_HOST:
+            body = f"invalid host {host}".encode("utf-8")
+            self.send_response(400)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if forwarded_host != EXPECTED_FORWARDED_HOST:
+            body = f"invalid forwarded host {forwarded_host}".encode("utf-8")
+            self.send_response(400)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         body = f"upstream {self.path}".encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "text/plain; charset=utf-8")
@@ -217,7 +239,7 @@ class Handler(BaseHTTPRequestHandler):
 ThreadingHTTPServer(("127.0.0.1", int(sys.argv[1])), Handler).serve_forever()
 PY
 
-  "$PYTHON_BIN" "$tmp/upstream.py" "$upstream_port" > "$tmp/upstream.out" 2>&1 &
+  "$PYTHON_BIN" "$tmp/upstream.py" "$upstream_port" "127.0.0.1:$upstream_port" > "$tmp/upstream.out" 2>&1 &
   local upstream_pid=$!
 
   PORT="$status_port" \
@@ -267,7 +289,10 @@ else:
 token = base64.b64encode(b"admin:secret-password").decode("ascii")
 req = urllib.request.Request(
     f"{base}/sessions?check=1",
-    headers={"Authorization": f"Basic {token}"},
+    headers={
+        "Authorization": f"Basic {token}",
+        "Host": "hermes-railway-template-dev.up.railway.app",
+    },
 )
 body = urllib.request.urlopen(req, timeout=2).read().decode("utf-8")
 assert body == "upstream /sessions?check=1", body

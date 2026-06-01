@@ -44,6 +44,17 @@ def dashboard_upstream_url() -> str:
     return os.environ.get("HERMES_DASHBOARD_UPSTREAM_URL", "").strip().rstrip("/")
 
 
+def dashboard_upstream_host_header() -> str:
+    """Host header the upstream dashboard expects.
+
+    Hermes' dashboard validates the Host header against the address it bound
+    to, so the proxy must present the upstream netloc (e.g. 127.0.0.1:9119)
+    rather than forwarding the original public Railway hostname.
+    """
+    parsed = urlsplit(dashboard_upstream_url())
+    return parsed.netloc
+
+
 def dashboard_proxy_enabled() -> bool:
     return bool(dashboard_upstream_url())
 
@@ -360,18 +371,27 @@ class StatusHandler(BaseHTTPRequestHandler):
 
     def proxy_headers(self) -> dict[str, str]:
         headers: dict[str, str] = {}
+        original_host = self.headers.get("Host", "")
         for key, value in self.headers.items():
             lower = key.lower()
             if lower in HOP_BY_HOP_HEADERS or lower == "authorization":
                 continue
+            # Rewrite Host to the upstream netloc. The dashboard rejects any
+            # Host that does not match the address it bound to.
+            if lower == "host":
+                continue
             headers[key] = value
+
+        upstream_host = dashboard_upstream_host_header()
+        if upstream_host:
+            headers["Host"] = upstream_host
 
         client_host = self.client_address[0] if self.client_address else ""
         forwarded_for = self.headers.get("X-Forwarded-For", "")
         headers["X-Forwarded-For"] = (
             f"{forwarded_for}, {client_host}" if forwarded_for and client_host else client_host
         )
-        headers["X-Forwarded-Host"] = self.headers.get("Host", "")
+        headers["X-Forwarded-Host"] = original_host
         headers["X-Forwarded-Proto"] = self.headers.get("X-Forwarded-Proto", "http")
         return headers
 
@@ -424,11 +444,20 @@ class StatusHandler(BaseHTTPRequestHandler):
                 upstream.close()
 
     def websocket_request_bytes(self, target: str) -> bytes:
+        upstream_host = dashboard_upstream_host_header()
         lines = [f"{self.command} {target} {self.request_version}\r\n"]
         for key, value in self.headers.items():
-            if key.lower() == "authorization":
+            lower = key.lower()
+            if lower == "authorization":
+                continue
+            # Rewrite Host so the dashboard's Host validation accepts the
+            # upgrade request; the original public host is preserved below.
+            if lower == "host":
                 continue
             lines.append(f"{key}: {value}\r\n")
+        if upstream_host:
+            lines.append(f"Host: {upstream_host}\r\n")
+            lines.append(f"X-Forwarded-Host: {self.headers.get('Host', '')}\r\n")
         lines.append("\r\n")
         return "".join(lines).encode("iso-8859-1")
 
