@@ -15,6 +15,7 @@ import json
 import os
 import select
 import socket
+import subprocess
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -87,8 +88,85 @@ def status_page_auth_enabled() -> bool:
     return bool(dashboard_proxy_password())
 
 
+def env_flag_enabled(name: str, default: bool) -> bool:
+    value = os.environ.get(name)
+    if value is None or not value.strip():
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def status_terminal_enabled() -> bool:
+    return status_page_auth_enabled() and env_flag_enabled("STATUS_TERMINAL_ENABLED", True)
+
+
+def terminal_workspace() -> Path:
+    return Path(os.environ.get("TERMINAL_CWD", "/data/workspace"))
+
+
+def terminal_timeout_seconds() -> float:
+    raw_timeout = os.environ.get("TERMINAL_TIMEOUT", "180")
+    try:
+        timeout = float(raw_timeout)
+    except ValueError:
+        timeout = 180.0
+    return max(1.0, timeout)
+
+
+def terminal_output_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
 def status_page_auth_required(path: str) -> bool:
-    return status_page_auth_enabled() and path in {"/", "/index.html", "/readyz"}
+    protected_paths = {"/", "/index.html", "/readyz"}
+    if status_terminal_enabled():
+        protected_paths.add("/terminal")
+    return status_page_auth_enabled() and path in protected_paths
+
+
+def run_terminal_command(command: str) -> dict[str, Any]:
+    cwd = terminal_workspace()
+    timeout = terminal_timeout_seconds()
+    start = time.monotonic()
+    cwd.mkdir(parents=True, exist_ok=True)
+
+    try:
+        completed = subprocess.run(
+            command,
+            shell=True,
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        duration = round(time.monotonic() - start, 3)
+        stdout = terminal_output_text(exc.stdout)
+        stderr = terminal_output_text(exc.stderr)
+        return {
+            "command": command,
+            "cwd": str(cwd),
+            "exit_code": 124,
+            "stdout": stdout,
+            "stderr": f"{stderr}\ncommand timed out after {timeout:g}s".lstrip(),
+            "duration_seconds": duration,
+            "timed_out": True,
+        }
+
+    duration = round(time.monotonic() - start, 3)
+    return {
+        "command": command,
+        "cwd": str(cwd),
+        "exit_code": completed.returncode,
+        "stdout": terminal_output_text(completed.stdout),
+        "stderr": terminal_output_text(completed.stderr),
+        "duration_seconds": duration,
+        "timed_out": False,
+    }
 
 
 def read_model_config() -> dict[str, str]:
@@ -195,7 +273,91 @@ def render_html(payload: dict[str, Any]) -> bytes:
     hermes_home = html.escape(storage["hermes_home"])
     workspace = html.escape(storage["workspace"])
     platform_text = html.escape(enabled_platform_labels(platforms))
-    dashboard_link = '      <a href="/sessions">dashboard</a>\n' if dashboard_proxy_enabled() else ""
+    config_exists = html.escape(str(storage["config_exists"]))
+    dashboard_link = (
+        '      <a href="/sessions" data-i18n="links.dashboard">dashboard</a>\n'
+        if dashboard_proxy_enabled()
+        else ""
+    )
+    terminal_link = (
+        '      <a href="/terminal" data-i18n="links.terminal">terminal</a>\n'
+        if status_terminal_enabled()
+        else ""
+    )
+    terminal_panel = ""
+    if status_terminal_enabled():
+        terminal_panel = f"""
+    <section class="terminal" id="terminal-panel" aria-label="Terminal">
+      <div class="section-head">
+        <div>
+          <h2 data-i18n="terminal.title">Terminal</h2>
+          <p data-i18n="terminal.description">Run shell commands inside the Hermes Railway container.</p>
+        </div>
+        <span class="terminal-badge" data-i18n="terminal.protected">Password protected</span>
+      </div>
+      <form id="terminal-form" class="terminal-form">
+        <label class="sr-only" for="terminal-command" data-i18n="terminal.commandLabel">Command</label>
+        <input id="terminal-command" name="command" type="text" autocomplete="off" spellcheck="false" value="hermes --help">
+        <button type="submit" data-i18n="terminal.run">Run</button>
+      </form>
+      <pre id="terminal-output" class="terminal-output" aria-live="polite" data-terminal-placeholder="terminal.placeholder" data-placeholder-visible="true">Command output will appear here.</pre>
+      <div class="terminal-meta">
+        <span data-i18n="terminal.cwdLabel">cwd</span>
+        <code>{workspace}</code>
+      </div>
+    </section>
+"""
+    translations = {
+        "en": {
+            "intro": "Gateway worker is running. Chat still happens through QQ Bot, WeCom, Weixin, or other configured platforms.",
+            "status.online": "Online",
+            "labels.service": "Railway service",
+            "labels.environment": "Environment",
+            "labels.provider": "Provider",
+            "labels.model": "Model",
+            "labels.platforms": "Messaging platforms",
+            "labels.home": "Hermes home",
+            "labels.config": "Config file",
+            "labels.workspace": "Workspace",
+            "links.dashboard": "dashboard",
+            "links.terminal": "terminal",
+            "terminal.title": "Terminal",
+            "terminal.description": "Run shell commands inside the Hermes Railway container.",
+            "terminal.protected": "Password protected",
+            "terminal.commandLabel": "Command",
+            "terminal.run": "Run",
+            "terminal.running": "Running...",
+            "terminal.placeholder": "Command output will appear here.",
+            "terminal.cwdLabel": "cwd",
+            "terminal.authError": "Authentication required. Refresh the page and sign in again.",
+            "terminal.requestError": "Command request failed.",
+        },
+        "zh": {
+            "intro": "网关服务正在运行。聊天仍然通过 QQ Bot、企业微信、微信或其他已配置平台进行。",
+            "status.online": "在线",
+            "labels.service": "Railway 服务",
+            "labels.environment": "环境",
+            "labels.provider": "模型提供方",
+            "labels.model": "模型",
+            "labels.platforms": "消息平台",
+            "labels.home": "Hermes 目录",
+            "labels.config": "配置文件",
+            "labels.workspace": "工作目录",
+            "links.dashboard": "控制台",
+            "links.terminal": "终端",
+            "terminal.title": "终端",
+            "terminal.description": "在 Hermes Railway 容器内执行 shell 命令。",
+            "terminal.protected": "密码保护",
+            "terminal.commandLabel": "命令",
+            "terminal.run": "运行",
+            "terminal.running": "正在运行...",
+            "terminal.placeholder": "命令输出会显示在这里。",
+            "terminal.cwdLabel": "工作目录",
+            "terminal.authError": "需要重新登录。请刷新页面并输入密码。",
+            "terminal.requestError": "命令请求失败。",
+        },
+    }
+    translations_json = json.dumps(translations, ensure_ascii=False)
 
     html_text = f"""<!doctype html>
 <html lang="en">
@@ -213,6 +375,9 @@ def render_html(payload: dict[str, Any]) -> bytes:
       --line: #d8dee8;
       --ok: #16a34a;
       --accent: #2563eb;
+      --terminal-bg: #111827;
+      --terminal-text: #d1fae5;
+      --terminal-muted: #9ca3af;
     }}
     * {{ box-sizing: border-box; }}
     body {{
@@ -228,8 +393,37 @@ def render_html(payload: dict[str, Any]) -> bytes:
       margin: 0 auto;
       padding: 48px 0;
     }}
+    .topbar {{
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 8px;
+    }}
     h1 {{ margin: 0 0 8px; font-size: clamp(28px, 5vw, 44px); letter-spacing: 0; }}
+    h2 {{ margin: 0 0 4px; font-size: 20px; letter-spacing: 0; }}
     p {{ color: var(--muted); margin: 0; }}
+    .language-toggle {{
+      display: inline-flex;
+      gap: 4px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--panel);
+    }}
+    .language-toggle button {{
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-weight: 700;
+      padding: 6px 10px;
+    }}
+    .language-toggle button.active {{
+      background: var(--text);
+      color: #fff;
+    }}
     .status {{
       display: inline-flex;
       align-items: center;
@@ -249,30 +443,229 @@ def render_html(payload: dict[str, Any]) -> bytes:
     .value {{ margin-top: 6px; font-weight: 700; overflow-wrap: anywhere; }}
     .links {{ display: flex; gap: 12px; margin-top: 24px; flex-wrap: wrap; }}
     a {{ color: var(--text); text-decoration: none; border-bottom: 1px solid var(--accent); }}
-    @media (max-width: 720px) {{ main {{ padding: 22px; }} .grid {{ grid-template-columns: 1fr; }} }}
+    .section-head {{
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 16px;
+    }}
+    .terminal {{
+      margin-top: 26px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }}
+    .terminal-badge {{
+      white-space: nowrap;
+      color: var(--accent);
+      background: rgba(37, 99, 235, 0.08);
+      border: 1px solid rgba(37, 99, 235, 0.18);
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 800;
+      padding: 6px 10px;
+    }}
+    .terminal-form {{
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      margin-bottom: 12px;
+    }}
+    .terminal-form input {{
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      color: var(--text);
+      font: 600 14px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      padding: 12px;
+    }}
+    .terminal-form button {{
+      border: 0;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #fff;
+      cursor: pointer;
+      font-weight: 800;
+      min-width: 84px;
+      padding: 0 16px;
+    }}
+    .terminal-form button:disabled {{ cursor: wait; opacity: 0.68; }}
+    .terminal-output {{
+      min-height: 260px;
+      max-height: 520px;
+      overflow: auto;
+      margin: 0;
+      padding: 16px;
+      border-radius: 8px;
+      background: var(--terminal-bg);
+      color: var(--terminal-text);
+      font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }}
+    .terminal-meta {{
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 10px;
+      overflow-wrap: anywhere;
+    }}
+    .terminal-meta code {{ color: var(--text); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }}
+    .sr-only {{
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }}
+    @media (max-width: 720px) {{
+      main {{ padding: 22px; }}
+      .topbar, .section-head {{ flex-direction: column; }}
+      .grid {{ grid-template-columns: 1fr; }}
+      .terminal-form {{ grid-template-columns: 1fr; }}
+      .terminal-form button {{ min-height: 44px; }}
+    }}
   </style>
 </head>
 <body>
   <main>
-    <h1>Hermes Railway</h1>
-    <p>Gateway worker is running. Chat still happens through QQ Bot, WeCom, Weixin, or other configured platforms.</p>
-    <div class="status"><span class="dot"></span> Online</div>
+    <div class="topbar">
+      <div>
+        <h1>Hermes Railway</h1>
+        <p data-i18n="intro">Gateway worker is running. Chat still happens through QQ Bot, WeCom, Weixin, or other configured platforms.</p>
+      </div>
+      <div class="language-toggle" aria-label="Language">
+        <button type="button" data-language-toggle="en" class="active">EN</button>
+        <button type="button" data-language-toggle="zh">中文</button>
+      </div>
+    </div>
+    <div class="status"><span class="dot"></span> <span data-i18n="status.online">Online</span></div>
     <section class="grid" aria-label="Deployment status">
-      <div class="card"><div class="label">Railway service</div><div class="value">{service_name}</div></div>
-      <div class="card"><div class="label">Environment</div><div class="value">{env_name}</div></div>
-      <div class="card"><div class="label">Provider</div><div class="value">{provider}</div></div>
-      <div class="card"><div class="label">Model</div><div class="value">{model_name}</div></div>
-      <div class="card"><div class="label">Messaging platforms</div><div class="value">{platform_text}</div></div>
-      <div class="card"><div class="label">Hermes home</div><div class="value">{hermes_home}</div></div>
-      <div class="card"><div class="label">Config file</div><div class="value">{storage["config_exists"]}</div></div>
-      <div class="card"><div class="label">Workspace</div><div class="value">{workspace}</div></div>
+      <div class="card"><div class="label" data-i18n="labels.service">Railway service</div><div class="value">{service_name}</div></div>
+      <div class="card"><div class="label" data-i18n="labels.environment">Environment</div><div class="value">{env_name}</div></div>
+      <div class="card"><div class="label" data-i18n="labels.provider">Provider</div><div class="value">{provider}</div></div>
+      <div class="card"><div class="label" data-i18n="labels.model">Model</div><div class="value">{model_name}</div></div>
+      <div class="card"><div class="label" data-i18n="labels.platforms">Messaging platforms</div><div class="value">{platform_text}</div></div>
+      <div class="card"><div class="label" data-i18n="labels.home">Hermes home</div><div class="value">{hermes_home}</div></div>
+      <div class="card"><div class="label" data-i18n="labels.config">Config file</div><div class="value">{config_exists}</div></div>
+      <div class="card"><div class="label" data-i18n="labels.workspace">Workspace</div><div class="value">{workspace}</div></div>
     </section>
+{terminal_panel.rstrip()}
     <div class="links">
       <a href="/healthz">healthz</a>
       <a href="/readyz">readyz</a>
 {dashboard_link.rstrip()}
+{terminal_link.rstrip()}
     </div>
   </main>
+  <script>
+    const translations = {translations_json};
+    const fallbackLanguage = "en";
+
+    function translate(key, language) {{
+      const dict = translations[language] || translations[fallbackLanguage];
+      return dict[key] || translations[fallbackLanguage][key] || key;
+    }}
+
+    function applyLanguage(language) {{
+      const selected = translations[language] ? language : fallbackLanguage;
+      document.documentElement.lang = selected === "zh" ? "zh-CN" : "en";
+      document.querySelectorAll("[data-i18n]").forEach((node) => {{
+        node.textContent = translate(node.dataset.i18n, selected);
+      }});
+      const terminalOutput = document.getElementById("terminal-output");
+      if (terminalOutput && terminalOutput.dataset.placeholderVisible === "true") {{
+        terminalOutput.textContent = translate(terminalOutput.dataset.terminalPlaceholder, selected);
+      }}
+      document.querySelectorAll("[data-language-toggle]").forEach((button) => {{
+        button.classList.toggle("active", button.dataset.languageToggle === selected);
+      }});
+      window.localStorage.setItem("hermes-status-language", selected);
+    }}
+
+    function formatTerminalResult(result) {{
+      const lines = ["$ " + result.command, ""];
+      if (result.stdout) {{
+        lines.push(result.stdout.trimEnd());
+      }}
+      if (result.stderr) {{
+        lines.push("", "[stderr]", result.stderr.trimEnd());
+      }}
+      lines.push(
+        "",
+        "Exit code: " + result.exit_code +
+          " | Duration: " + result.duration_seconds + "s" +
+          " | CWD: " + result.cwd
+      );
+      return lines.join("\\n");
+    }}
+
+    function terminalApiUrl() {{
+      const url = new URL("/api/terminal/run", window.location.href);
+      url.username = "";
+      url.password = "";
+      return url.toString();
+    }}
+
+    const initialLanguage = window.localStorage.getItem("hermes-status-language") || fallbackLanguage;
+    applyLanguage(initialLanguage);
+
+    document.querySelectorAll("[data-language-toggle]").forEach((button) => {{
+      button.addEventListener("click", () => applyLanguage(button.dataset.languageToggle));
+    }});
+
+    const terminalForm = document.getElementById("terminal-form");
+    if (terminalForm) {{
+      const commandInput = document.getElementById("terminal-command");
+      const output = document.getElementById("terminal-output");
+      const runButton = terminalForm.querySelector("button[type='submit']");
+
+      terminalForm.addEventListener("submit", async (event) => {{
+        event.preventDefault();
+        const language = document.documentElement.lang === "zh-CN" ? "zh" : "en";
+        const command = commandInput.value.trim();
+        if (!command) {{
+          commandInput.focus();
+          return;
+        }}
+
+        runButton.disabled = true;
+        output.dataset.placeholderVisible = "false";
+        runButton.textContent = translate("terminal.running", language);
+        output.textContent = "$ " + command + "\\n\\n" + translate("terminal.running", language);
+
+        try {{
+          const response = await fetch(terminalApiUrl(), {{
+            method: "POST",
+            headers: {{"Content-Type": "application/json"}},
+            body: JSON.stringify({{command}})
+          }});
+          if (response.status === 401) {{
+            output.textContent = translate("terminal.authError", language);
+            return;
+          }}
+          if (!response.ok) {{
+            output.textContent = translate("terminal.requestError", language) + " (" + response.status + ")";
+            return;
+          }}
+          output.textContent = formatTerminalResult(await response.json());
+        }} catch (error) {{
+          output.textContent = translate("terminal.requestError", language) + "\\n" + error;
+        }} finally {{
+          runButton.disabled = false;
+          runButton.textContent = translate("terminal.run", language);
+        }}
+      }});
+    }}
+  </script>
 </body>
 </html>
 """
@@ -306,12 +699,20 @@ class StatusHandler(BaseHTTPRequestHandler):
     def handle_request(self) -> None:
         path = self.path.split("?", 1)[0]
 
+        if path in {"/terminal", "/api/terminal/run"} and not status_terminal_enabled():
+            self.respond(404, "text/plain; charset=utf-8", b"not found\n")
+            return
+
+        if path == "/api/terminal/run":
+            self.handle_terminal_run()
+            return
+
         if self.command in {"GET", "HEAD"} and status_page_auth_required(path):
             if not self.has_valid_proxy_auth():
                 self.request_proxy_auth()
                 return
 
-        if self.command in {"GET", "HEAD"} and path in {"/", "/index.html"}:
+        if self.command in {"GET", "HEAD"} and path in {"/", "/index.html", "/terminal"}:
             payload = status_payload()
             self.respond(200, "text/html; charset=utf-8", render_html(payload))
             return
@@ -340,6 +741,56 @@ class StatusHandler(BaseHTTPRequestHandler):
         self.end_headers()
         if self.command != "HEAD":
             self.wfile.write(body)
+
+    def respond_json(self, status: int, payload: dict[str, Any]) -> None:
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.respond(status, "application/json; charset=utf-8", body)
+
+    def handle_terminal_run(self) -> None:
+        if not self.has_valid_proxy_auth():
+            self.request_proxy_auth()
+            return
+
+        if self.command != "POST":
+            self.send_response(405)
+            self.send_header("Allow", "POST")
+            self.send_header("Content-Length", "0")
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            return
+
+        try:
+            content_length = int(self.headers.get("Content-Length") or "0")
+        except ValueError:
+            self.respond_json(400, {"error": "invalid content length"})
+            return
+
+        if content_length <= 0:
+            self.respond_json(400, {"error": "missing JSON body"})
+            return
+        if content_length > 65536:
+            self.respond_json(413, {"error": "request body too large"})
+            return
+
+        raw_body = self.rfile.read(content_length)
+        try:
+            data = json.loads(raw_body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            self.respond_json(400, {"error": "invalid JSON body"})
+            return
+
+        command = data.get("command") if isinstance(data, dict) else None
+        if not isinstance(command, str) or not command.strip():
+            self.respond_json(400, {"error": "command must be a non-empty string"})
+            return
+
+        try:
+            result = run_terminal_command(command)
+        except Exception as exc:  # noqa: BLE001 - return a safe terminal error
+            self.respond_json(500, {"error": f"terminal execution failed: {exc}"})
+            return
+
+        self.respond_json(200, result)
 
     def proxy_dashboard(self) -> None:
         if not dashboard_proxy_password():

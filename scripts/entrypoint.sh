@@ -60,6 +60,21 @@ cleanup() {
   exit "$code"
 }
 
+wait_for_first_exit() {
+  local pid status
+
+  while true; do
+    for pid in "$@"; do
+      if ! kill -0 "$pid" 2>/dev/null; then
+        status=0
+        wait "$pid" 2>/dev/null || status=$?
+        return "$status"
+      fi
+    done
+    sleep 1
+  done
+}
+
 dashboard_enabled() {
   is_true "${HERMES_DASHBOARD:-false}"
 }
@@ -635,4 +650,4 @@ if [[ "${#PIDS[@]}" -eq 0 ]]; then
   exit 1
 fi
 
-wait -n "${PIDS[@]}"
+wait_for_first_exit "${PIDS[@]}"

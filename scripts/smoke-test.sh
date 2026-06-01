@@ -206,6 +206,7 @@ assert ready["platforms"]["qqbot"] is True, ready
 
 page = urllib.request.urlopen(base, timeout=2).read().decode("utf-8")
 assert "Hermes Railway" in page, page
+assert 'id="terminal-panel"' not in page, page
 assert "super-secret-test-key" not in page, page
 assert "openid_a" not in page, page
 PY
@@ -332,12 +333,13 @@ import urllib.request
 
 port = sys.argv[1]
 base = f"http://127.0.0.1:{port}"
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
-health = urllib.request.urlopen(f"{base}/healthz", timeout=2).read().decode("utf-8").strip()
+health = opener.open(f"{base}/healthz", timeout=2).read().decode("utf-8").strip()
 assert health == "ok", health
 
 try:
-    urllib.request.urlopen(base, timeout=2)
+    opener.open(base, timeout=2)
 except urllib.error.HTTPError as exc:
     assert exc.code == 401, exc.code
     assert exc.headers.get("WWW-Authenticate", "").startswith("Basic "), exc.headers
@@ -345,7 +347,7 @@ else:
     raise AssertionError("status page accepted unauthenticated request")
 
 try:
-    urllib.request.urlopen(f"{base}/readyz", timeout=2)
+    opener.open(f"{base}/readyz", timeout=2)
 except urllib.error.HTTPError as exc:
     assert exc.code == 401, exc.code
 else:
@@ -356,15 +358,15 @@ ready_req = urllib.request.Request(
     f"{base}/readyz",
     headers={"Authorization": f"Basic {token}"},
 )
-ready = urllib.request.urlopen(ready_req, timeout=2).read().decode("utf-8")
+ready = opener.open(ready_req, timeout=2).read().decode("utf-8")
 assert '"status": "ok"' in ready, ready
 
 page_req = urllib.request.Request(base, headers={"Authorization": f"Basic {token}"})
-page = urllib.request.urlopen(page_req, timeout=2).read().decode("utf-8")
+page = opener.open(page_req, timeout=2).read().decode("utf-8")
 assert "/sessions" in page, page
 
 try:
-    urllib.request.urlopen(f"{base}/sessions", timeout=2)
+    opener.open(f"{base}/sessions", timeout=2)
 except urllib.error.HTTPError as exc:
     assert exc.code == 401, exc.code
     assert "Basic" in exc.headers.get("WWW-Authenticate", ""), exc.headers
@@ -379,7 +381,7 @@ req = urllib.request.Request(
         "Host": "hermes-railway-template-dev.up.railway.app",
     },
 )
-body = urllib.request.urlopen(req, timeout=2).read().decode("utf-8")
+body = opener.open(req, timeout=2).read().decode("utf-8")
 assert body == "upstream /sessions?check=1", body
 PY
 
@@ -418,6 +420,217 @@ PY
   wait "$status_pid" "$upstream_pid" 2>/dev/null || true
   trap - RETURN
   echo "status page dashboard proxy OK"
+}
+
+run_status_terminal_case() {
+  local tmp port
+  tmp="$(mktemp -d)"
+  mkdir -p "$tmp/home/.hermes" "$tmp/workspace"
+  cat > "$tmp/home/.hermes/config.yaml" <<'YAML'
+model:
+  default: infini-test-model
+  provider: custom
+terminal:
+  cwd: /data/workspace
+YAML
+
+  port="$("$PYTHON_BIN" - <<'PY'
+import socket
+
+with socket.socket() as sock:
+    sock.bind(("127.0.0.1", 0))
+    print(sock.getsockname()[1])
+PY
+)"
+
+  PORT="$port" \
+    HERMES_HOME="$tmp/home/.hermes" \
+    HOME="$tmp/home" \
+    TERMINAL_CWD="$tmp/workspace" \
+    TERMINAL_TIMEOUT=1 \
+    HERMES_DASHBOARD_PROXY_PASSWORD=secret-password \
+    "$PYTHON_BIN" "$ROOT_DIR/scripts/status_server.py" > "$tmp/status.out" 2>&1 &
+  local pid=$!
+
+  trap 'kill "$pid" 2>/dev/null || true' RETURN
+
+  for _ in $(seq 1 50); do
+    if "$PYTHON_BIN" - "$port" <<'PY' >/dev/null 2>&1
+import sys
+import urllib.request
+
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+opener.open(f"http://127.0.0.1:{sys.argv[1]}/healthz", timeout=0.2).read()
+PY
+    then
+      break
+    fi
+    sleep 0.1
+  done
+
+  "$PYTHON_BIN" - "$port" "$tmp/workspace" <<'PY'
+import base64
+import json
+import sys
+import urllib.error
+import urllib.request
+
+port, workspace = sys.argv[1:3]
+base = f"http://127.0.0.1:{port}"
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+token = base64.b64encode(b"admin:secret-password").decode("ascii")
+
+try:
+    opener.open(f"{base}/api/terminal/run", data=b'{"command":"pwd"}', timeout=2)
+except urllib.error.HTTPError as exc:
+    assert exc.code == 401, exc.code
+else:
+    raise AssertionError("terminal API accepted unauthenticated request")
+
+page_req = urllib.request.Request(base, headers={"Authorization": f"Basic {token}"})
+page = opener.open(page_req, timeout=2).read().decode("utf-8")
+assert 'id="terminal-panel"' in page, page
+assert 'data-i18n="terminal.title"' in page, page
+assert 'data-language-toggle' in page, page
+
+terminal_req = urllib.request.Request(
+    f"{base}/terminal",
+    headers={"Authorization": f"Basic {token}"},
+)
+terminal_page = opener.open(terminal_req, timeout=2).read().decode("utf-8")
+assert 'id="terminal-panel"' in terminal_page, terminal_page
+
+payload = json.dumps(
+    {"command": "pwd; printf 'hello from terminal'; printf 'stderr line' >&2; exit 7"}
+).encode("utf-8")
+run_req = urllib.request.Request(
+    f"{base}/api/terminal/run",
+    data=payload,
+    headers={
+        "Authorization": f"Basic {token}",
+        "Content-Type": "application/json",
+    },
+    method="POST",
+)
+result = json.loads(opener.open(run_req, timeout=5).read().decode("utf-8"))
+assert result["exit_code"] == 7, result
+assert workspace in result["stdout"], result
+assert "hello from terminal" in result["stdout"], result
+assert "stderr line" in result["stderr"], result
+assert result["cwd"] == workspace, result
+assert isinstance(result["duration_seconds"], (int, float)), result
+
+payload = json.dumps({"command": "printf before-timeout; sleep 2"}).encode("utf-8")
+timeout_req = urllib.request.Request(
+    f"{base}/api/terminal/run",
+    data=payload,
+    headers={
+        "Authorization": f"Basic {token}",
+        "Content-Type": "application/json",
+    },
+    method="POST",
+)
+timeout_result = json.loads(opener.open(timeout_req, timeout=5).read().decode("utf-8"))
+assert timeout_result["exit_code"] == 124, timeout_result
+assert timeout_result["timed_out"] is True, timeout_result
+assert "before-timeout" in timeout_result["stdout"], timeout_result
+assert "command timed out after 1s" in timeout_result["stderr"], timeout_result
+PY
+
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  trap - RETURN
+  echo "status terminal OK"
+}
+
+run_status_terminal_disabled_case() {
+  local tmp port
+  tmp="$(mktemp -d)"
+  mkdir -p "$tmp/home/.hermes" "$tmp/workspace"
+
+  port="$("$PYTHON_BIN" - <<'PY'
+import socket
+
+with socket.socket() as sock:
+    sock.bind(("127.0.0.1", 0))
+    print(sock.getsockname()[1])
+PY
+)"
+
+  PORT="$port" \
+    HERMES_HOME="$tmp/home/.hermes" \
+    HOME="$tmp/home" \
+    TERMINAL_CWD="$tmp/workspace" \
+    HERMES_DASHBOARD_PROXY_PASSWORD=secret-password \
+    STATUS_TERMINAL_ENABLED=false \
+    "$PYTHON_BIN" "$ROOT_DIR/scripts/status_server.py" > "$tmp/status.out" 2>&1 &
+  local pid=$!
+
+  trap 'kill "$pid" 2>/dev/null || true' RETURN
+
+  for _ in $(seq 1 50); do
+    if "$PYTHON_BIN" - "$port" <<'PY' >/dev/null 2>&1
+import sys
+import urllib.request
+
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+opener.open(f"http://127.0.0.1:{sys.argv[1]}/healthz", timeout=0.2).read()
+PY
+    then
+      break
+    fi
+    sleep 0.1
+  done
+
+  "$PYTHON_BIN" - "$port" <<'PY'
+import base64
+import sys
+import urllib.error
+import urllib.request
+
+port = sys.argv[1]
+base = f"http://127.0.0.1:{port}"
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+token = base64.b64encode(b"admin:secret-password").decode("ascii")
+
+page_req = urllib.request.Request(base, headers={"Authorization": f"Basic {token}"})
+page = opener.open(page_req, timeout=2).read().decode("utf-8")
+assert 'id="terminal-panel"' not in page, page
+
+api_req = urllib.request.Request(
+    f"{base}/api/terminal/run",
+    data=b'{"command":"pwd"}',
+    headers={
+        "Authorization": f"Basic {token}",
+        "Content-Type": "application/json",
+    },
+    method="POST",
+)
+try:
+    opener.open(api_req, timeout=2)
+except urllib.error.HTTPError as exc:
+    assert exc.code == 404, exc.code
+else:
+    raise AssertionError("disabled terminal API accepted request")
+
+try:
+    opener.open(
+        urllib.request.Request(
+            f"{base}/terminal",
+            headers={"Authorization": f"Basic {token}"},
+        ),
+        timeout=2,
+    )
+except urllib.error.HTTPError as exc:
+    assert exc.code == 404, exc.code
+else:
+    raise AssertionError("disabled terminal page accepted request")
+PY
+
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  trap - RETURN
+  echo "status terminal disabled OK"
 }
 
 run_dashboard_case() {
@@ -613,6 +826,10 @@ run_failure "gateway disabled without dashboard" "HERMES_GATEWAY_ENABLED=false r
   OPENAI_API_KEY=test-key
 
 run_status_page_case
+
+run_status_terminal_case
+
+run_status_terminal_disabled_case
 
 run_status_page_dashboard_proxy_case
 

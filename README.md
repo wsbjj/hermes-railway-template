@@ -257,6 +257,7 @@ CUSTOM_API_KEY=你的APIKey
 | `STATUS_PAGE_ENABLED` | 可选 | `true` | 是否启动轻量状态页；设置为 `false` 可关闭。 |
 | `STATUS_PAGE_HOST` | 可选 | `0.0.0.0` | 状态页监听地址，Railway 上必须能绑定公网流量。 |
 | `STATUS_PAGE_PORT` | 可选 | `8080` | 本地备用端口；Railway 上优先使用 `PORT`。 |
+| `STATUS_TERMINAL_ENABLED` | 可选 | `true` | 是否在已加密登录的状态页显示网页终端；只有设置了 `HERMES_DASHBOARD_PROXY_PASSWORD` 或 `HERMES_DASHBOARD_PASSWORD` 才会启用。 |
 | `HERMES_GATEWAY_ENABLED` | 可选 | `true` | 是否启动 QQ Bot / WeCom / Weixin 等消息网关；纯 Web Dashboard 测试环境可设为 `false`。 |
 | `HERMES_DASHBOARD` | 可选 | `false` | 设置为 `1` 或 `true` 后启动 Hermes 官方 Web Dashboard。 |
 | `HERMES_DASHBOARD_HOST` | 可选 | `0.0.0.0` | 关闭状态页时 Dashboard 直接监听的地址；状态页代理模式下默认改为内部 loopback。 |
@@ -267,7 +268,7 @@ CUSTOM_API_KEY=你的APIKey
 | `HERMES_DASHBOARD_INSECURE` | 可选 | 代理模式默认开启 | 跳过 Dashboard OAuth/code gate。状态页代理模式下默认由 `HERMES_DASHBOARD_PROXY_PASSWORD` 保护；如需额外保留官方 OAuth，可显式设置为 `false`。 |
 | `HERMES_DASHBOARD_SKIP_BUILD` | 可选 | `true` | 默认使用镜像里预构建好的 Dashboard 静态资源，避免 Railway 启动时重新跑 Vite 构建。需要运行时强制重建时才设为 `false`。 |
 | `HERMES_DASHBOARD_PROXY_USER` | 可选 | `admin` | 状态页代理 Dashboard 时的 Basic Auth 用户名。 |
-| `HERMES_DASHBOARD_PROXY_PASSWORD` | Dashboard + 状态页必填 | 随机强密码 | 保护 `/`、`/readyz`、`/sessions` 和所有 Dashboard 路径；也兼容 `HERMES_DASHBOARD_PASSWORD`。 |
+| `HERMES_DASHBOARD_PROXY_PASSWORD` | Dashboard / 终端必填 | 随机强密码 | 保护 `/`、`/readyz`、`/terminal`、网页终端 API、`/sessions` 和所有 Dashboard 路径；也兼容 `HERMES_DASHBOARD_PASSWORD`。 |
 | `HERMES_DASHBOARD_PUBLIC_URL` | 公开 Dashboard 建议填 | Railway 公网 URL | OAuth 回调使用的公开 Dashboard 地址。 |
 | `HERMES_DASHBOARD_OAUTH_CLIENT_ID` | 公开 Dashboard 建议填 | Nous Portal client id | 启用官方 OAuth gate，避免公网暴露 `.env`。 |
 
@@ -450,10 +451,31 @@ STATUS_PAGE_ENABLED=false
 
 - `/` 和 `/readyz` 会先要求 Basic Auth 密码，避免公开暴露部署状态。
 - `/healthz` 保持公开，只返回 `ok`，用于 Railway 或外部健康检查。
+- 如果设置了 `HERMES_DASHBOARD_PROXY_PASSWORD` 或 `HERMES_DASHBOARD_PASSWORD`，状态页会显示网页终端，并用同一组 Basic Auth 保护 `/terminal` 和 `/api/terminal/run`。
 - `/sessions` 和其他 Dashboard 路径使用同一组 Basic Auth 密码；在 `/` 输入过密码后，浏览器会复用到 Dashboard。
 - Dashboard 在代理模式下默认只监听 `127.0.0.1:9119`，不会直接绑定公网端口。
 - 代理模式必须设置 `HERMES_DASHBOARD_PROXY_PASSWORD`；未设置时容器会 fail closed，避免误把 Dashboard 裸露到公网。
 - 状态页代理模式下，Dashboard 默认跳过官方 OAuth/code gate；公网入口已经由 Basic Auth 保护。如果要同时保留官方 OAuth/code，可显式设置 `HERMES_DASHBOARD_INSECURE=false`。
+
+## 网页终端
+
+状态页内置了一个完整 Shell 终端，可以在浏览器里执行 `hermes`、`pwd`、`ls` 等容器内命令。它默认使用 `TERMINAL_CWD`，不填则是 `/data/workspace`；命令超时沿用 `TERMINAL_TIMEOUT`，默认 `180` 秒。
+
+启用条件：
+
+```env
+HERMES_DASHBOARD_PROXY_USER=admin
+HERMES_DASHBOARD_PROXY_PASSWORD=换成一个随机强密码
+STATUS_TERMINAL_ENABLED=true
+```
+
+安全提醒：
+
+- 这是完整 Shell，不是命令白名单。登录后可以读取容器文件，包括 `/data/.hermes/.env`、`config.yaml`、日志和工作区文件。
+- 没有设置 `HERMES_DASHBOARD_PROXY_PASSWORD` 或 `HERMES_DASHBOARD_PASSWORD` 时，`/terminal` 和 `/api/terminal/run` 会返回 `404`，不会裸露在公网。
+- 如果你只想保留状态页和 Dashboard，不想开启网页终端，设置 `STATUS_TERMINAL_ENABLED=false`。
+
+状态页右上角有 `EN / 中文` 切换按钮，只影响当前浏览器里的状态页显示，不会改 Hermes 配置。
 
 ## 官方 Web Dashboard
 
