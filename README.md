@@ -1,17 +1,44 @@
-# Hermes Railway Template
+# Deploy and Host Hermes Agent with Railway
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template/DOx7Ru?utm_medium=integration&utm_source=template&utm_campaign=generic)
 
 把 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 部署到 Railway 的一键模板。当前模板默认使用 `Hermes Agent v0.18.0 / v2026.7.1`，适合把 Hermes 作为长期在线的聊天机器人、Web Dashboard 或轻量工作台运行。
 
-## 功能
+## About Hosting Hermes Agent
+
+这个模板使用 Dockerfile 从指定 Hermes Agent tag 构建镜像，在 Railway 上运行 gateway、Dashboard 代理和状态页。模板会把 `/data/.hermes` 作为 Hermes home，建议挂载 Railway Volume 到 `/data`，这样配置、会话、技能和工作区不会在重启后丢失。模型配置通过 Railway Variables 注入，支持自定义 OpenAI 兼容接口、OpenRouter、Anthropic 和 MiniMax。
+
+核心能力：
 
 - Railway 一键部署，使用 Dockerfile 构建 Hermes Agent。
 - 持久化 `/data/.hermes`，重启后保留 Hermes 配置、会话和运行时数据。
 - 内置 Web Dashboard 代理、登录页和状态页。
 - 预构建 Hermes Web UI、TUI 和浏览器终端依赖，减少冷启动时的构建工作。
-- 支持 OpenAI 兼容自定义接口、OpenRouter、Anthropic、MiniMax 国际版、MiniMax 中国区。
 - 支持 QQ Bot、企业微信 WeCom、个人微信 Weixin、Telegram、Discord、Slack 等 Hermes gateway 平台。
+
+## Why Deploy Hermes Agent on Railway?
+
+Railway 适合托管这类需要长期在线、需要公网入口、又需要少量持久化数据的 agent 服务。使用本模板后，你不需要手动维护服务器、systemd、反向代理和 TLS。Railway 负责构建、部署、日志、域名、环境变量和 Volume，Hermes 负责模型调用、消息平台接入和 Dashboard 交互。
+
+## Common Use Cases
+
+- 部署 QQ、微信、Telegram、Discord 或 Slack 上的长期在线 AI 助手。
+- 给团队内部使用一个带登录保护的 Hermes Web Dashboard。
+- 在 Railway 上测试自定义 OpenAI 兼容模型接口。
+- 为个人自动化、消息转发、工具调用和轻量任务执行提供远程运行环境。
+- 使用持久化 Volume 保留 Hermes 会话、技能和工作区。
+
+## Dependencies for Hermes Agent Hosting
+
+模板会在镜像内安装 Hermes Agent、Python 运行环境、Node.js 构建依赖、Hermes Web UI、TUI 和浏览器终端静态资源。运行时主要依赖 Railway 的 Variables、公网域名和 Volume。
+
+### Deployment Dependencies
+
+- Railway workspace 和一个 Railway service。
+- GitHub 仓库访问权限，用于从 `wsbjj/hermes-railway-template` 构建。
+- 一个模型 provider key，例如 OpenAI 兼容接口、OpenRouter、Anthropic 或 MiniMax。
+- 至少一个消息平台凭据，或者开启 Dashboard-only 模式。
+- 推荐挂载 Railway Volume 到 `/data`。
 
 ## 快速部署
 
