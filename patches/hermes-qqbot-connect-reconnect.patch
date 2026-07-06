@@ -1,0 +1,6 @@
+diff --git a/gateway/platforms/qqbot/adapter.py b/gateway/platforms/qqbot/adapter.py
+--- a/gateway/platforms/qqbot/adapter.py
++++ b/gateway/platforms/qqbot/adapter.py
+@@ -281 +281 @@ class QQAdapter(BasePlatformAdapter):
+-    async def connect(self) -> bool:
++    async def connect(self, *, is_reconnect: bool = False) -> bool:
