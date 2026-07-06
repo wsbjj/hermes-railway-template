@@ -102,7 +102,7 @@ GitHub main -> Railway production
 这是最符合你当前需求的一组变量。
 
 ```env
-HERMES_GIT_REF=v2026.5.29
+HERMES_GIT_REF=v2026.7.1
 HERMES_HOME=/data/.hermes
 HOME=/data
 
@@ -126,7 +126,7 @@ QQ_ALLOWED_USERS=允许访问的openid_a,允许访问的openid_b
 ## 备选配置：QQ Bot + MiniMax 国际版
 
 ```env
-HERMES_GIT_REF=v2026.5.29
+HERMES_GIT_REF=v2026.7.1
 HERMES_HOME=/data/.hermes
 HOME=/data
 
@@ -142,7 +142,7 @@ QQ_ALLOWED_USERS=允许访问的openid_a,允许访问的openid_b
 ## 备选配置：QQ Bot + MiniMax 中国区
 
 ```env
-HERMES_GIT_REF=v2026.5.29
+HERMES_GIT_REF=v2026.7.1
 HERMES_HOME=/data/.hermes
 HOME=/data
 
@@ -160,7 +160,7 @@ QQ_ALLOWED_USERS=允许访问的openid_a,允许访问的openid_b
 企业微信 WeCom 比个人微信更适合放在 Railway 上长期运行。
 
 ```env
-HERMES_GIT_REF=v2026.5.29
+HERMES_GIT_REF=v2026.7.1
 HERMES_HOME=/data/.hermes
 HOME=/data
 
@@ -185,7 +185,7 @@ hermes gateway setup
 扫码成功后，凭据会持久化到 `/data/.hermes`。之后 Railway 重启会复用这个 Volume。
 
 ```env
-HERMES_GIT_REF=v2026.5.29
+HERMES_GIT_REF=v2026.7.1
 HERMES_HOME=/data/.hermes
 HOME=/data
 
@@ -250,7 +250,7 @@ CUSTOM_API_KEY=你的APIKey
 
 | 变量 | 是否必填 | 建议值 | 说明 |
 | --- | --- | --- | --- |
-| `HERMES_GIT_REF` | 建议填 | `v2026.5.29` | 构建时拉取 Hermes Agent 的 tag 或 commit。 |
+| `HERMES_GIT_REF` | 建议填 | `v2026.7.1` | 构建时拉取 Hermes Agent 的 tag 或 commit。 |
 | `HERMES_SOURCE_CACHE_BUST` | 更新时可填 | 时间戳，如 `202607061600` | 强制 Docker 重新执行 Hermes 源码拉取层。使用 `main` 等会移动的 ref 时，每次更新都应换一个值。 |
 | `HERMES_HOME` | 建议保留 | `/data/.hermes` | Hermes 状态目录，默认在 Railway Volume 下。 |
 | `HOME` | 建议保留 | `/data` | 让 Hermes 和相关 CLI 把状态写到 Volume。 |
@@ -551,7 +551,7 @@ QQ_ALLOWED_USERS=你的测试openid
 如果要固定到某个 tag 或 commit，把 `main` 换成目标 ref：
 
 ```powershell
-.\scripts\update-hermes-railway.ps1 -Ref v2026.5.29 -Environment dev -Service hermes-railway-template
+.\scripts\update-hermes-railway.ps1 -Ref v2026.7.1 -Environment dev -Service hermes-railway-template
 ```
 
 手动执行等价命令：
@@ -597,7 +597,7 @@ docker buildx build --check .
 本地构建镜像：
 
 ```bash
-docker build --build-arg HERMES_GIT_REF=v2026.5.29 -t hermes-railway-template .
+docker build --build-arg HERMES_GIT_REF=v2026.7.1 -t hermes-railway-template .
 ```
 
 本地运行示例：

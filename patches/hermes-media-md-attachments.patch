@@ -1,22 +1,11 @@
 diff --git a/gateway/platforms/base.py b/gateway/platforms/base.py
 --- a/gateway/platforms/base.py
 +++ b/gateway/platforms/base.py
-@@ -2461 +2461 @@
--            r'''[`"']?MEDIA:\s*(?P<path>`[^`\n]+`|"[^"\n]+"|'[^'\n]+'|(?:~/|/)\S+(?:[^\S\n]+\S+)*?\.(?:png|jpe?g|gif|webp|mp4|mov|avi|mkv|webm|ogg|opus|mp3|wav|m4a|flac|epub|pdf|zip|rar|7z|docx?|xlsx?|pptx?|txt|csv|apk|ipa)(?=[\s`"',;:)\]}]|$))[`"']?'''
-+            r'''[`"']?MEDIA:\s*(?P<path>`[^`\n]+`|"[^"\n]+"|'[^'\n]+'|(?:~/|/)\S+(?:[^\S\n]+\S+)*?\.(?:png|jpe?g|gif|webp|mp4|mov|avi|mkv|webm|ogg|opus|mp3|wav|m4a|flac|epub|md|markdown|pdf|zip|rar|7z|docx?|xlsx?|pptx?|txt|csv|apk|ipa)(?=[\s`"',;:)\]}]|$))[`"']?'''
-@@ -3627 +3627,2 @@
--                # Extract MEDIA:<path> tags (from TTS tool) before other processing
-+                # Extract MEDIA:<path> tags (from TTS tool) before other processing.
+@@ -4901,0 +4902,1 @@ class BasePlatformAdapter(ABC):
 +                had_media_directive = bool(re.search(r"MEDIA:\s*\S+", response))
-@@ -3645,0 +3647,11 @@
-+                if (
-+                    had_media_directive
-+                    and not text_content
-+                    and not media_files
-+                    and not images
-+                    and not local_files
-+                ):
-+                    text_content = (
-+                        "I could not send the requested attachment because the MEDIA "
-+                        "path was missing, unsafe, unsupported, or not found."
-+                    )
+@@ -4944,0 +4946,5 @@ class BasePlatformAdapter(ABC):
++                    elif had_media_directive:
++                        text_content = (
++                            "I could not send the requested attachment because the MEDIA "
++                            "path was missing, unsafe, unsupported, or not found."
++                        )

@@ -3,7 +3,7 @@ FROM node:22-bookworm-slim AS node
 
 FROM python:3.11-slim-bookworm AS builder
 
-ARG HERMES_GIT_REF=v2026.5.29
+ARG HERMES_GIT_REF=v2026.7.1
 ARG HERMES_SOURCE_CACHE_BUST=0
 
 COPY --from=node /usr/local /usr/local
@@ -59,7 +59,7 @@ RUN cd /opt/hermes-agent/ui-tui \
 
 FROM python:3.11-slim-bookworm
 
-ARG HERMES_GIT_REF=v2026.5.29
+ARG HERMES_GIT_REF=v2026.7.1
 ARG HERMES_SOURCE_CACHE_BUST=0
 
 COPY --from=node /usr/local /usr/local

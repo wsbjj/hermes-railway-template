@@ -1020,7 +1020,7 @@ run_dockerfile_tui_prebuild_case() {
   grep -q "/tmp/hermes-patches/.*\\.patch" "$ROOT_DIR/Dockerfile"
   grep -q "allow_public" "$ROOT_DIR/patches/hermes-dashboard-insecure-public-ws.patch"
   test -f "$ROOT_DIR/patches/hermes-media-md-attachments.patch"
-  grep -q "md|" "$ROOT_DIR/patches/hermes-media-md-attachments.patch"
+  grep -q "requested attachment" "$ROOT_DIR/patches/hermes-media-md-attachments.patch"
   grep -q "procps" "$ROOT_DIR/Dockerfile"
   grep -q "tzdata" "$ROOT_DIR/Dockerfile"
   grep -q "xterm.js" "$ROOT_DIR/Dockerfile"
