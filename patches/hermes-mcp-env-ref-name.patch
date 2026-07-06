@@ -1,0 +1,18 @@
+diff --git a/tools/mcp_tool.py b/tools/mcp_tool.py
+--- a/tools/mcp_tool.py
++++ b/tools/mcp_tool.py
+@@ -359,0 +360,14 @@ _ENV_VAR_PATTERN = re.compile(r"\$\{([^}]+)\}")
++
++def _env_ref_name(ref: str) -> str:
++    """Normalize a ``${...}`` reference body into an env-var name.
++
++    Accepts Cursor-style ``${env:VAR}`` in addition to plain ``${VAR}`` by
++    stripping a leading ``env:`` prefix. The result is the bare variable name
++    to look up in the secret scope / ``os.environ``.
++    """
++    ref = ref.strip()
++    if ref.startswith("env:"):
++        ref = ref[len("env:"):].strip()
++    return ref
++
++

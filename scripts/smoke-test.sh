@@ -1022,6 +1022,7 @@ run_dockerfile_tui_prebuild_case() {
   test -f "$ROOT_DIR/patches/hermes-media-md-attachments.patch"
   grep -q "requested attachment" "$ROOT_DIR/patches/hermes-media-md-attachments.patch"
   grep -q "is_reconnect" "$ROOT_DIR/patches/hermes-qqbot-connect-reconnect.patch"
+  grep -q "_env_ref_name" "$ROOT_DIR/patches/hermes-mcp-env-ref-name.patch"
   grep -q "procps" "$ROOT_DIR/Dockerfile"
   grep -q "tzdata" "$ROOT_DIR/Dockerfile"
   grep -q "xterm.js" "$ROOT_DIR/Dockerfile"
