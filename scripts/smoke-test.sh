@@ -91,8 +91,8 @@ run_config_case() {
 
   grep -q "^model:" "$tmp/home/.hermes/config.yaml"
   grep -q "provider: custom" "$tmp/home/.hermes/config.yaml"
-  grep -q "default: infini-test-model" "$tmp/home/.hermes/config.yaml"
-  grep -q "base_url: https://cloud.infini-ai.com/maas/v1" "$tmp/home/.hermes/config.yaml"
+  grep -q "default: custom-test-model" "$tmp/home/.hermes/config.yaml"
+  grep -q "base_url: https://api.example.com/v1" "$tmp/home/.hermes/config.yaml"
   grep -Fq 'api_key: ${OPENAI_API_KEY}' "$tmp/home/.hermes/config.yaml"
   if grep -q "api_key: test-key" "$tmp/home/.hermes/config.yaml"; then
     echo "$name wrote a plaintext API key" >&2
@@ -147,7 +147,7 @@ YAML
     STATUS_PAGE_ENABLED=false \
     HERMES_INFERENCE_PROVIDER=custom \
     HERMES_MODEL=glm-5.1 \
-    OPENAI_BASE_URL=https://cloud.infini-ai.com/maas/coding/v1 \
+    OPENAI_BASE_URL=https://api.example.com/coding/v1 \
     OPENAI_API_KEY=test-key \
     QQ_APP_ID=app-id \
     QQ_CLIENT_SECRET=secret \
@@ -156,7 +156,7 @@ YAML
 
   grep -q "provider: custom" "$tmp/home/.hermes/config.yaml"
   grep -q "default: glm-5.1" "$tmp/home/.hermes/config.yaml"
-  grep -q "base_url: https://cloud.infini-ai.com/maas/coding/v1" "$tmp/home/.hermes/config.yaml"
+  grep -q "base_url: https://api.example.com/coding/v1" "$tmp/home/.hermes/config.yaml"
   grep -Fq 'api_key: ${OPENAI_API_KEY}' "$tmp/home/.hermes/config.yaml"
   grep -q "HERMES_TUI_PROVIDER=custom" "$tmp/home/.hermes/.env"
   grep -q "HERMES_INFERENCE_MODEL=glm-5.1" "$tmp/home/.hermes/.env"
@@ -200,9 +200,9 @@ run_status_page_case() {
   mkdir -p "$tmp/home/.hermes" "$tmp/workspace"
   cat > "$tmp/home/.hermes/config.yaml" <<'YAML'
 model:
-  default: infini-test-model
+  default: custom-test-model
   provider: custom
-  base_url: https://cloud.infini-ai.com/maas/v1
+  base_url: https://api.example.com/v1
 terminal:
   cwd: /data/workspace
 YAML
@@ -223,8 +223,8 @@ PY
     HERMES_IMAGE_GIT_REF=vtest \
     HERMES_IMAGE_SOURCE_CACHE_BUST=smoke \
     HERMES_INFERENCE_PROVIDER=custom \
-    HERMES_MODEL=infini-test-model \
-    OPENAI_BASE_URL=https://cloud.infini-ai.com/maas/v1 \
+    HERMES_MODEL=custom-test-model \
+    OPENAI_BASE_URL=https://api.example.com/v1 \
     OPENAI_API_KEY=super-secret-test-key \
     QQ_APP_ID=app-id \
     QQ_CLIENT_SECRET=secret \
@@ -261,7 +261,7 @@ assert health == "ok", health
 ready = json.loads(urllib.request.urlopen(f"{base}/readyz", timeout=2).read().decode("utf-8"))
 assert ready["status"] == "ok", ready
 assert ready["model"]["provider"] == "custom", ready
-assert ready["model"]["default"] == "infini-test-model", ready
+assert ready["model"]["default"] == "custom-test-model", ready
 assert ready["image"]["hermes_git_ref"] == "vtest", ready
 assert ready["image"]["source_cache_bust"] == "smoke", ready
 assert ready["platforms"]["qqbot"] is True, ready
@@ -544,7 +544,7 @@ run_status_terminal_case() {
   mkdir -p "$tmp/home/.hermes" "$tmp/workspace"
   cat > "$tmp/home/.hermes/config.yaml" <<'YAML'
 model:
-  default: infini-test-model
+  default: custom-test-model
   provider: custom
 terminal:
   cwd: /data/workspace
@@ -1040,9 +1040,9 @@ run_railway_update_template_case() {
   echo "Railway Hermes update controls OK"
 }
 
-run_success "QQ InfiniAI via OPENAI_BASE_URL" env \
+run_success "QQ custom endpoint via OPENAI_BASE_URL" env \
   HERMES_INFERENCE_PROVIDER=custom \
-  OPENAI_BASE_URL=https://cloud.infini-ai.com/maas/v1 \
+  OPENAI_BASE_URL=https://api.example.com/v1 \
   OPENAI_API_KEY=test-key \
   QQ_APP_ID=app-id \
   QQ_CLIENT_SECRET=secret \
@@ -1050,8 +1050,8 @@ run_success "QQ InfiniAI via OPENAI_BASE_URL" env \
 
 run_config_case "model config from Railway variables" env \
   HERMES_INFERENCE_PROVIDER=custom \
-  HERMES_MODEL=infini-test-model \
-  OPENAI_BASE_URL=https://cloud.infini-ai.com/maas/v1 \
+  HERMES_MODEL=custom-test-model \
+  OPENAI_BASE_URL=https://api.example.com/v1 \
   OPENAI_API_KEY=test-key \
   QQ_APP_ID=app-id \
   QQ_CLIENT_SECRET=secret \
@@ -1063,10 +1063,10 @@ run_existing_model_config_sync_case
 
 run_bare_custom_base_url_normalization_case
 
-run_success "QQ InfiniAI via CUSTOM_BASE_URL" env \
+run_success "QQ custom endpoint via CUSTOM_BASE_URL" env \
   HERMES_INFERENCE_PROVIDER=custom \
-  CUSTOM_BASE_URL=https://cloud.infini-ai.com/maas/v1 \
-  INFINI_AI_API_KEY=test-key \
+  CUSTOM_BASE_URL=https://api.example.com/v1 \
+  CUSTOM_API_KEY=test-key \
   QQ_APP_ID=app-id \
   QQ_CLIENT_SECRET=secret \
   QQ_ALLOWED_USERS=openid_a
