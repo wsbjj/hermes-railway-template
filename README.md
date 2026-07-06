@@ -1,6 +1,6 @@
 # Deploy and Host Hermes Agent with Railway
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template/DOx7Ru?utm_medium=integration&utm_source=template&utm_campaign=generic)
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/soothing-eagerness?utm_medium=integration&utm_source=template&utm_campaign=generic)
 
 把 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 部署到 Railway 的一键模板。当前模板默认使用 `Hermes Agent v0.18.0 / v2026.7.1`，适合把 Hermes 作为长期在线的聊天机器人、Web Dashboard 或轻量工作台运行。
 
@@ -294,8 +294,8 @@ docker build --build-arg HERMES_GIT_REF=v2026.7.1 -t hermes-railway-template .
 脚本会设置：
 
 ```text
-HERMES_GIT_REF=<ref>
-HERMES_SOURCE_CACHE_BUST=<timestamp>
+HERMES_GIT_REF=REF_VALUE
+HERMES_SOURCE_CACHE_BUST=CACHE_BUST_VALUE
 ```
 
 然后执行 Railway 的 source redeploy。手动等价命令：
@@ -313,7 +313,7 @@ railway deployment redeploy --from-source --yes --service hermes-railway-templat
 railway templates publish DOx7Ru `
   --workspace "Bu Junjie's Projects" `
   --category Bots `
-  --description "Deploy Hermes Agent on Railway with Dashboard, persistent storage, messaging adapters, and custom model providers." `
+  --description "Deploy Hermes Agent on Railway with Dashboard and messaging bots." `
   --readme-file README.md `
   --json
 ```
@@ -321,7 +321,7 @@ railway templates publish DOx7Ru `
 模板链接：
 
 ```text
-https://railway.com/new/template/DOx7Ru?utm_medium=integration&utm_source=template&utm_campaign=generic
+https://railway.com/deploy/soothing-eagerness?utm_medium=integration&utm_source=template&utm_campaign=generic
 ```
 
 ## 常见问题
@@ -342,7 +342,7 @@ OPENAI_BASE_URL=https://cmdme.cn/v1
 
 ### 裸域名接口返回 HTML
 
-如果模型日志里出现 `<!doctype html>`，通常是 base URL 指向了网页入口。请使用 `/v1` API 地址。裸域名会自动补 `/v1`，但带路径的地址需要你自己确认是 API endpoint。
+如果模型日志里出现 HTML doctype，通常是 base URL 指向了网页入口。请使用 `/v1` API 地址。裸域名会自动补 `/v1`，但带路径的地址需要你自己确认是 API endpoint。
 
 ### Dashboard 打不开或跳登录
 
@@ -371,4 +371,4 @@ HERMES_DASHBOARD_PROXY_PASSWORD=change-this-password
 
 - Hermes Agent: https://github.com/NousResearch/hermes-agent
 - Hermes 文档: https://github.com/NousResearch/hermes-agent/tree/main/website/docs
-- Railway 模板: https://railway.com/new/template/DOx7Ru?utm_medium=integration&utm_source=template&utm_campaign=generic
+- Railway 模板: https://railway.com/deploy/soothing-eagerness?utm_medium=integration&utm_source=template&utm_campaign=generic
