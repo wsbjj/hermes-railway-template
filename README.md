@@ -310,7 +310,7 @@ railway deployment redeploy --from-source --yes --service hermes-railway-templat
 维护者发布或更新 Marketplace 模板：
 
 ```powershell
-railway templates publish DOx7Ru `
+railway templates publish 2e0d2a90-f128-4519-96c4-17ab7b457494 `
   --workspace "Bu Junjie's Projects" `
   --category Bots `
   --description "Deploy Hermes Agent on Railway with Dashboard and messaging bots." `
