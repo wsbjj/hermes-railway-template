@@ -397,10 +397,19 @@ model_env_configured() {
   [[ -n "${HERMES_INFERENCE_PROVIDER:-}${HERMES_MODEL:-}${MODEL_NAME:-}${CUSTOM_BASE_URL:-}${OPENAI_BASE_URL:-}" ]]
 }
 
+model_api_key_ref() {
+  local base_url="${CUSTOM_BASE_URL:-${OPENAI_BASE_URL:-}}"
+
+  if [[ -n "$base_url" && -n "${OPENAI_API_KEY:-}" ]]; then
+    printf '${OPENAI_API_KEY}'
+  fi
+}
+
 write_model_config() {
   local provider="${HERMES_INFERENCE_PROVIDER:-}"
   local model="${HERMES_MODEL:-${MODEL_NAME:-}}"
   local base_url="${CUSTOM_BASE_URL:-${OPENAI_BASE_URL:-}}"
+  local api_key_ref=""
 
   if [[ -z "$provider" && -n "$base_url" ]]; then
     provider="custom"
@@ -419,6 +428,10 @@ write_model_config() {
   fi
   if [[ -n "$base_url" ]]; then
     echo "  base_url: ${base_url}"
+  fi
+  api_key_ref="$(model_api_key_ref)"
+  if [[ -n "$api_key_ref" ]]; then
+    echo "  api_key: ${api_key_ref}"
   fi
 }
 
@@ -443,6 +456,7 @@ updates = {}
 model = os.environ.get("HERMES_MODEL") or os.environ.get("MODEL_NAME") or ""
 provider = os.environ.get("HERMES_INFERENCE_PROVIDER") or ""
 base_url = os.environ.get("CUSTOM_BASE_URL") or os.environ.get("OPENAI_BASE_URL") or ""
+api_key_ref = "${OPENAI_API_KEY}" if base_url and os.environ.get("OPENAI_API_KEY") else ""
 
 if base_url and not provider:
     provider = "custom"
@@ -453,6 +467,8 @@ if provider:
     updates["provider"] = provider
 if base_url:
     updates["base_url"] = base_url
+if api_key_ref:
+    updates["api_key"] = api_key_ref
 
 if not updates:
     sys.exit(0)
@@ -477,6 +493,8 @@ for line in block:
 
 
 def yaml_scalar(value: str) -> str:
+    if re.match(r"^\$\{[A-Za-z_][A-Za-z0-9_]*\}$", value):
+        return value
     if re.match(r"^[A-Za-z0-9._:/@?&=+,%~-]+$", value):
         return value
     return "'" + value.replace("'", "''") + "'"
@@ -496,7 +514,7 @@ for line in block:
         continue
     new_block.append(line)
 
-for key in ("default", "provider", "base_url"):
+for key in ("default", "provider", "base_url", "api_key"):
     if key in updates and key not in seen:
         new_block.append(f"{indent}{key}: {yaml_scalar(updates[key])}")
 

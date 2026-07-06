@@ -230,6 +230,7 @@ CUSTOM_API_KEY=你的APIKey
 - 如果只填 `CUSTOM_BASE_URL`，会同步为 `OPENAI_BASE_URL`。
 - 如果自定义端点只填裸域名，例如 `https://cmdme.cn`，启动脚本会自动归一化为 `https://cmdme.cn/v1`。
 - 如果无问芯穹地址里包含 `infini-ai`，`OPENAI_API_KEY` 和 `INFINI_AI_API_KEY` 会自动互相补齐。
+- 自定义端点会在 `config.yaml` 写入 `model.api_key: ${OPENAI_API_KEY}` 这种环境变量引用，不会把明文 key 写进 Volume 配置文件。
 - 自定义端点必须有 key：`OPENAI_API_KEY`、`CUSTOM_API_KEY` 或 `INFINI_AI_API_KEY` 至少一个。
 
 ## 可复制环境变量模板
@@ -416,7 +417,7 @@ compression:
   threshold: 0.85
 ```
 
-如果 `/data/.hermes/config.yaml` 已经存在并且已有 `model:` 段，只要 Railway Variables 里显式设置了 `HERMES_INFERENCE_PROVIDER`、`HERMES_MODEL`、`OPENAI_BASE_URL` 或 `CUSTOM_BASE_URL`，启动脚本会同步 `model.default`、`model.provider` 和 `model.base_url`。这样重新部署后，旧 Volume 里残留的 provider 不会继续压过 Railway Variables。
+如果 `/data/.hermes/config.yaml` 已经存在并且已有 `model:` 段，只要 Railway Variables 里显式设置了 `HERMES_INFERENCE_PROVIDER`、`HERMES_MODEL`、`OPENAI_BASE_URL` 或 `CUSTOM_BASE_URL`，启动脚本会同步 `model.default`、`model.provider`、`model.base_url` 和 `model.api_key` 环境变量引用。这样重新部署后，旧 Volume 里残留的 provider 或缺失的自定义端点 key 不会继续压过 Railway Variables。
 
 ## 轻量状态页
 
@@ -660,6 +661,8 @@ You are using Node.js 18.20.4. Vite requires Node.js version 20.19+ or 22.12+.
 - Anthropic：`ANTHROPIC_API_KEY`
 
 如果 Dashboard Chat 报 `Provider 'zai' is set in config.yaml`，但 Railway Variables 和 `/data/.hermes/config.yaml` 都已经是 `provider: custom`，通常是 TUI 子进程按模型名自动识别 provider。重新部署最新版本；入口脚本会同步 `HERMES_TUI_PROVIDER=custom` 和 `HERMES_INFERENCE_MODEL=<HERMES_MODEL>` 来覆盖这个自动识别。
+
+如果日志提示 `run hermes model to configure (api_key)` 或自定义端点返回 `INVALID_API_KEY`，但 Railway Variables 中的 `OPENAI_API_KEY` 确认正确，通常是 `/data/.hermes/config.yaml` 的 `model.api_key` 缺失。重新部署最新版本；入口脚本会写入 `api_key: ${OPENAI_API_KEY}`，让 Hermes 对 `cmdme.cn` 这类非官方自定义域名也显式使用 Railway key。
 
 ### 终端工具提示命令不存在
 

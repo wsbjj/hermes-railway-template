@@ -93,6 +93,12 @@ run_config_case() {
   grep -q "provider: custom" "$tmp/home/.hermes/config.yaml"
   grep -q "default: infini-test-model" "$tmp/home/.hermes/config.yaml"
   grep -q "base_url: https://cloud.infini-ai.com/maas/v1" "$tmp/home/.hermes/config.yaml"
+  grep -Fq 'api_key: ${OPENAI_API_KEY}' "$tmp/home/.hermes/config.yaml"
+  if grep -q "api_key: test-key" "$tmp/home/.hermes/config.yaml"; then
+    echo "$name wrote a plaintext API key" >&2
+    cat "$tmp/home/.hermes/config.yaml" >&2
+    exit 1
+  fi
   echo "$name OK"
 }
 
@@ -151,6 +157,7 @@ YAML
   grep -q "provider: custom" "$tmp/home/.hermes/config.yaml"
   grep -q "default: glm-5.1" "$tmp/home/.hermes/config.yaml"
   grep -q "base_url: https://cloud.infini-ai.com/maas/coding/v1" "$tmp/home/.hermes/config.yaml"
+  grep -Fq 'api_key: ${OPENAI_API_KEY}' "$tmp/home/.hermes/config.yaml"
   grep -q "HERMES_TUI_PROVIDER=custom" "$tmp/home/.hermes/.env"
   grep -q "HERMES_INFERENCE_MODEL=glm-5.1" "$tmp/home/.hermes/.env"
   if grep -q "provider: zai" "$tmp/home/.hermes/config.yaml"; then
@@ -181,6 +188,7 @@ run_bare_custom_base_url_normalization_case() {
 
   grep -q "Normalized bare custom base URL to https://cmdme.cn/v1" "$tmp/out.txt"
   grep -q "base_url: https://cmdme.cn/v1" "$tmp/home/.hermes/config.yaml"
+  grep -Fq 'api_key: ${OPENAI_API_KEY}' "$tmp/home/.hermes/config.yaml"
   grep -q "OPENAI_BASE_URL=https://cmdme.cn/v1" "$tmp/home/.hermes/.env"
   grep -q "CUSTOM_BASE_URL=https://cmdme.cn/v1" "$tmp/home/.hermes/.env"
   echo "bare custom base URL normalization OK"
