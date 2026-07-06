@@ -342,6 +342,10 @@ def status_payload() -> dict[str, Any]:
             "default": model_name,
             "base_url_configured": base_url_configured,
         },
+        "image": {
+            "hermes_git_ref": os.environ.get("HERMES_IMAGE_GIT_REF", ""),
+            "source_cache_bust": os.environ.get("HERMES_IMAGE_SOURCE_CACHE_BUST", ""),
+        },
         "platforms": platform_state(),
         "storage": {
             "hermes_home": str(HERMES_HOME),
@@ -360,12 +364,15 @@ def enabled_platform_labels(platforms: dict[str, bool]) -> str:
 
 def render_html(payload: dict[str, Any]) -> bytes:
     model = payload["model"]
+    image = payload["image"]
     storage = payload["storage"]
     railway = payload["railway"]
     platforms = payload["platforms"]
 
     provider = html.escape(model["provider"] or "not configured")
     model_name = html.escape(model["default"] or "not configured")
+    image_ref = html.escape(image["hermes_git_ref"] or "unknown")
+    image_cache_bust = html.escape(image["source_cache_bust"] or "not set")
     env_name = html.escape(railway["environment"] or "unknown")
     service_name = html.escape(railway["service"] or payload["service"])
     hermes_home = html.escape(storage["hermes_home"])
@@ -414,6 +421,8 @@ def render_html(payload: dict[str, Any]) -> bytes:
             "labels.environment": "Environment",
             "labels.provider": "Provider",
             "labels.model": "Model",
+            "labels.imageRef": "Hermes image ref",
+            "labels.cacheBust": "Source cache bust",
             "labels.platforms": "Messaging platforms",
             "labels.home": "Hermes home",
             "labels.config": "Config file",
@@ -438,6 +447,8 @@ def render_html(payload: dict[str, Any]) -> bytes:
             "labels.environment": "环境",
             "labels.provider": "模型提供方",
             "labels.model": "模型",
+            "labels.imageRef": "Hermes 镜像 ref",
+            "labels.cacheBust": "源码缓存刷新值",
             "labels.platforms": "消息平台",
             "labels.home": "Hermes 目录",
             "labels.config": "配置文件",
@@ -633,6 +644,8 @@ def render_html(payload: dict[str, Any]) -> bytes:
       <div class="card"><div class="label" data-i18n="labels.environment">Environment</div><div class="value">{env_name}</div></div>
       <div class="card"><div class="label" data-i18n="labels.provider">Provider</div><div class="value">{provider}</div></div>
       <div class="card"><div class="label" data-i18n="labels.model">Model</div><div class="value">{model_name}</div></div>
+      <div class="card"><div class="label" data-i18n="labels.imageRef">Hermes image ref</div><div class="value">{image_ref}</div></div>
+      <div class="card"><div class="label" data-i18n="labels.cacheBust">Source cache bust</div><div class="value">{image_cache_bust}</div></div>
       <div class="card"><div class="label" data-i18n="labels.platforms">Messaging platforms</div><div class="value">{platform_text}</div></div>
       <div class="card"><div class="label" data-i18n="labels.home">Hermes home</div><div class="value">{hermes_home}</div></div>
       <div class="card"><div class="label" data-i18n="labels.config">Config file</div><div class="value">{config_exists}</div></div>

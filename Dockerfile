@@ -4,6 +4,7 @@ FROM node:22-bookworm-slim AS node
 FROM python:3.11-slim-bookworm AS builder
 
 ARG HERMES_GIT_REF=v2026.5.29
+ARG HERMES_SOURCE_CACHE_BUST=0
 
 COPY --from=node /usr/local /usr/local
 ENV PATH="/usr/local/bin:${PATH}"
@@ -17,11 +18,14 @@ RUN apt-get update -o Acquire::Retries=3 \
 
 WORKDIR /opt
 RUN test -n "${HERMES_GIT_REF}" \
+  && echo "Hermes source ref: ${HERMES_GIT_REF}" \
+  && echo "Hermes source cache bust: ${HERMES_SOURCE_CACHE_BUST}" \
   && git init /opt/hermes-agent \
   && git -C /opt/hermes-agent remote add origin https://github.com/NousResearch/hermes-agent.git \
   && git -C /opt/hermes-agent fetch --depth 1 origin "${HERMES_GIT_REF}" \
   && git -C /opt/hermes-agent checkout --detach FETCH_HEAD \
-  && git -C /opt/hermes-agent submodule update --init --recursive --depth 1
+  && git -C /opt/hermes-agent submodule update --init --recursive --depth 1 \
+  && printf 'HERMES_GIT_REF=%s\nHERMES_SOURCE_CACHE_BUST=%s\n' "${HERMES_GIT_REF}" "${HERMES_SOURCE_CACHE_BUST}" > /opt/hermes-agent/.railway-build-info
 
 COPY patches/ /tmp/hermes-patches/
 RUN for patch in /tmp/hermes-patches/*.patch; do git -C /opt/hermes-agent apply --unidiff-zero "$patch"; done
@@ -55,6 +59,9 @@ RUN cd /opt/hermes-agent/ui-tui \
 
 FROM python:3.11-slim-bookworm
 
+ARG HERMES_GIT_REF=v2026.5.29
+ARG HERMES_SOURCE_CACHE_BUST=0
+
 COPY --from=node /usr/local /usr/local
 
 RUN apt-get update -o Acquire::Retries=3 \
@@ -71,6 +78,8 @@ RUN apt-get update -o Acquire::Retries=3 \
 ENV PATH="/opt/venv/bin:/usr/local/bin:${PATH}" \
   PYTHONUNBUFFERED=1 \
   HERMES_HOME=/data/.hermes \
+  HERMES_IMAGE_GIT_REF="${HERMES_GIT_REF}" \
+  HERMES_IMAGE_SOURCE_CACHE_BUST="${HERMES_SOURCE_CACHE_BUST}" \
   HOME=/data
 
 COPY --from=builder /opt/venv /opt/venv

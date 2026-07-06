@@ -228,6 +228,7 @@ CUSTOM_API_KEY=你的APIKey
 
 - 如果只填 `OPENAI_BASE_URL`，会同步为 `CUSTOM_BASE_URL`。
 - 如果只填 `CUSTOM_BASE_URL`，会同步为 `OPENAI_BASE_URL`。
+- 如果自定义端点只填裸域名，例如 `https://cmdme.cn`，启动脚本会自动归一化为 `https://cmdme.cn/v1`。
 - 如果无问芯穹地址里包含 `infini-ai`，`OPENAI_API_KEY` 和 `INFINI_AI_API_KEY` 会自动互相补齐。
 - 自定义端点必须有 key：`OPENAI_API_KEY`、`CUSTOM_API_KEY` 或 `INFINI_AI_API_KEY` 至少一个。
 
@@ -249,6 +250,7 @@ CUSTOM_API_KEY=你的APIKey
 | 变量 | 是否必填 | 建议值 | 说明 |
 | --- | --- | --- | --- |
 | `HERMES_GIT_REF` | 建议填 | `v2026.5.29` | 构建时拉取 Hermes Agent 的 tag 或 commit。 |
+| `HERMES_SOURCE_CACHE_BUST` | 更新时可填 | 时间戳，如 `202607061600` | 强制 Docker 重新执行 Hermes 源码拉取层。使用 `main` 等会移动的 ref 时，每次更新都应换一个值。 |
 | `HERMES_HOME` | 建议保留 | `/data/.hermes` | Hermes 状态目录，默认在 Railway Volume 下。 |
 | `HOME` | 建议保留 | `/data` | 让 Hermes 和相关 CLI 把状态写到 Volume。 |
 | `TZ` | 可选 | `Asia/Shanghai` | 容器系统时区；入口脚本默认设置，Railway Variables 可覆盖。 |
@@ -535,13 +537,35 @@ QQ_ALLOWED_USERS=你的测试openid
 2. 在 Hermes 聊天中使用 `/model ... --global` 持久化；如果 Railway Variables 里仍设置了模型字段，下次部署会再次以 Variables 为准。
 3. 通过 Railway SSH 编辑 `/data/.hermes/config.yaml`；如果只是测试环境，也可以删除该文件后重新部署，让脚本按 Variables 重建。
 
-不要在 Railway 里直接运行 `hermes update` 更新程序本体。更新 Hermes 版本应修改：
+## 更新 Hermes 程序版本
 
-```env
-HERMES_GIT_REF=新的tag或commit
+不要在 Railway 容器里直接运行 `hermes update` 更新程序本体。Railway 运行的是已经构建好的镜像，运行中改容器文件系统既不会稳定保留，也不会触发 Web/TUI 重新构建。
+
+推荐在本机用 Railway CLI 触发一次新的镜像构建：
+
+```powershell
+.\scripts\update-hermes-railway.ps1 -Ref main -Environment dev -Service hermes-railway-template
 ```
 
-然后重新部署。
+如果要固定到某个 tag 或 commit，把 `main` 换成目标 ref：
+
+```powershell
+.\scripts\update-hermes-railway.ps1 -Ref v2026.5.29 -Environment dev -Service hermes-railway-template
+```
+
+手动执行等价命令：
+
+```powershell
+railway variable set HERMES_GIT_REF=main HERMES_SOURCE_CACHE_BUST=202607061600 --service hermes-railway-template --environment dev --skip-deploys
+railway deployment redeploy --from-source --yes --service hermes-railway-template --environment dev
+```
+
+说明：
+
+- `HERMES_GIT_REF` 是构建时拉取的 Hermes Agent tag、branch 或 commit。
+- `HERMES_SOURCE_CACHE_BUST` 用来让 Docker 构建缓存失效。尤其当 `HERMES_GIT_REF=main` 时，ref 名字不变但远端 commit 会变，所以每次更新都应换一个时间戳。
+- `/data/.hermes` 在 Railway Volume 下，配置、凭据和会话状态会跨镜像重建保留。
+- 重新部署后可以在状态页 `/readyz` 的 `image.hermes_git_ref` 和 `image.source_cache_bust` 确认当前镜像来自哪次构建。
 
 ## 本地验证
 
@@ -647,6 +671,8 @@ You are using Node.js 18.20.4. Vite requires Node.js version 20.19+ or 22.12+.
 ```
 
 重新部署最新镜像。入口脚本会把容器 `PATH` 写入 `/data/.hermes/.env`，让 Hermes 的内部终端工具也能找到 `/opt/venv/bin/hermes`；运行镜像也包含 `procps`，因此 `ps` 可用。
+
+如果日志里出现 `Empty response (no content or reasoning)`，并且标题生成提示拿到了 `<!doctype html>`，说明 `OPENAI_BASE_URL` 指向了网页入口而不是 JSON API。自定义 OpenAI 兼容接口应使用 API base URL，例如 `https://cmdme.cn/v1`；最新入口脚本会把 `https://cmdme.cn` 这类裸域名自动补成 `/v1`。
 
 ### QQ Bot 启动失败
 

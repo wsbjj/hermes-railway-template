@@ -161,6 +161,31 @@ YAML
   echo "existing model config sync OK"
 }
 
+run_bare_custom_base_url_normalization_case() {
+  local tmp
+  tmp="$(new_case_dir)"
+
+  PATH="$tmp/bin:$PATH" \
+    HERMES_HOME="$tmp/home/.hermes" \
+    HOME="$tmp/home" \
+    TERMINAL_CWD="$tmp/workspace" \
+    STATUS_PAGE_ENABLED=false \
+    HERMES_INFERENCE_PROVIDER=custom \
+    HERMES_MODEL=glm5.2 \
+    OPENAI_BASE_URL=https://cmdme.cn \
+    OPENAI_API_KEY=test-key \
+    QQ_APP_ID=app-id \
+    QQ_CLIENT_SECRET=secret \
+    QQ_ALLOWED_USERS=openid_a \
+    "$ROOT_DIR/scripts/entrypoint.sh" > "$tmp/out.txt" 2>&1
+
+  grep -q "Normalized bare custom base URL to https://cmdme.cn/v1" "$tmp/out.txt"
+  grep -q "base_url: https://cmdme.cn/v1" "$tmp/home/.hermes/config.yaml"
+  grep -q "OPENAI_BASE_URL=https://cmdme.cn/v1" "$tmp/home/.hermes/.env"
+  grep -q "CUSTOM_BASE_URL=https://cmdme.cn/v1" "$tmp/home/.hermes/.env"
+  echo "bare custom base URL normalization OK"
+}
+
 run_status_page_case() {
   local tmp port
   tmp="$(mktemp -d)"
@@ -187,6 +212,8 @@ PY
     HERMES_HOME="$tmp/home/.hermes" \
     HOME="$tmp/home" \
     TERMINAL_CWD="$tmp/workspace" \
+    HERMES_IMAGE_GIT_REF=vtest \
+    HERMES_IMAGE_SOURCE_CACHE_BUST=smoke \
     HERMES_INFERENCE_PROVIDER=custom \
     HERMES_MODEL=infini-test-model \
     OPENAI_BASE_URL=https://cloud.infini-ai.com/maas/v1 \
@@ -227,6 +254,8 @@ ready = json.loads(urllib.request.urlopen(f"{base}/readyz", timeout=2).read().de
 assert ready["status"] == "ok", ready
 assert ready["model"]["provider"] == "custom", ready
 assert ready["model"]["default"] == "infini-test-model", ready
+assert ready["image"]["hermes_git_ref"] == "vtest", ready
+assert ready["image"]["source_cache_bust"] == "smoke", ready
 assert ready["platforms"]["qqbot"] is True, ready
 
 page = urllib.request.urlopen(base, timeout=2).read().decode("utf-8")
@@ -990,6 +1019,17 @@ run_dockerfile_tui_prebuild_case() {
   echo "Dockerfile TUI prebuild OK"
 }
 
+run_railway_update_template_case() {
+  grep -q "ARG HERMES_SOURCE_CACHE_BUST=0" "$ROOT_DIR/Dockerfile"
+  grep -q "HERMES_IMAGE_GIT_REF" "$ROOT_DIR/Dockerfile"
+  grep -q "HERMES_SOURCE_CACHE_BUST" "$ROOT_DIR/README.md"
+  grep -q "deployment redeploy --from-source" "$ROOT_DIR/README.md"
+  grep -q "HERMES_SOURCE_CACHE_BUST" "$ROOT_DIR/scripts/update-hermes-railway.ps1"
+  grep -q -- "--skip-deploys" "$ROOT_DIR/scripts/update-hermes-railway.ps1"
+  grep -q -- "--from-source" "$ROOT_DIR/scripts/update-hermes-railway.ps1"
+  echo "Railway Hermes update controls OK"
+}
+
 run_success "QQ InfiniAI via OPENAI_BASE_URL" env \
   HERMES_INFERENCE_PROVIDER=custom \
   OPENAI_BASE_URL=https://cloud.infini-ai.com/maas/v1 \
@@ -1010,6 +1050,8 @@ run_config_case "model config from Railway variables" env \
 run_runtime_env_path_case
 
 run_existing_model_config_sync_case
+
+run_bare_custom_base_url_normalization_case
 
 run_success "QQ InfiniAI via CUSTOM_BASE_URL" env \
   HERMES_INFERENCE_PROVIDER=custom \
@@ -1082,3 +1124,5 @@ run_dashboard_rebuild_case
 run_dashboard_only_case
 
 run_dockerfile_tui_prebuild_case
+
+run_railway_update_template_case

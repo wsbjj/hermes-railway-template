@@ -282,7 +282,35 @@ has_custom_endpoint_config() {
   return 1
 }
 
+normalize_openai_base_url_value() {
+  local value="$1"
+
+  if [[ "$value" =~ ^https?://[^/]+/?$ ]]; then
+    printf '%s/v1' "${value%/}"
+  else
+    printf '%s' "$value"
+  fi
+}
+
 normalize_provider_env() {
+  if [[ -n "${OPENAI_BASE_URL:-}" ]]; then
+    local normalized_openai_base_url
+    normalized_openai_base_url="$(normalize_openai_base_url_value "${OPENAI_BASE_URL}")"
+    if [[ "$normalized_openai_base_url" != "$OPENAI_BASE_URL" ]]; then
+      export OPENAI_BASE_URL="$normalized_openai_base_url"
+      echo "[bootstrap] Normalized bare custom base URL to ${OPENAI_BASE_URL}"
+    fi
+  fi
+
+  if [[ -n "${CUSTOM_BASE_URL:-}" ]]; then
+    local normalized_custom_base_url
+    normalized_custom_base_url="$(normalize_openai_base_url_value "${CUSTOM_BASE_URL}")"
+    if [[ "$normalized_custom_base_url" != "$CUSTOM_BASE_URL" ]]; then
+      export CUSTOM_BASE_URL="$normalized_custom_base_url"
+      echo "[bootstrap] Normalized bare custom base URL to ${CUSTOM_BASE_URL}"
+    fi
+  fi
+
   if [[ -z "${CUSTOM_BASE_URL:-}" && -n "${OPENAI_BASE_URL:-}" ]]; then
     export CUSTOM_BASE_URL="${OPENAI_BASE_URL}"
   fi
