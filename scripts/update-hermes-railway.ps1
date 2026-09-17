@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [string]$Ref = "main",
+  [string]$Ref = "v2026.9.14",
   [string]$Environment = "dev",
   [string]$Service = "hermes-railway-template",
   [string]$Project = "",

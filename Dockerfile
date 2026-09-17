@@ -1,9 +1,9 @@
-FROM node:22-bookworm-slim AS node
+FROM node:26-bookworm-slim AS node
 
 
 FROM python:3.11-slim-bookworm AS builder
 
-ARG HERMES_GIT_REF=v2026.7.1
+ARG HERMES_GIT_REF=v2026.9.14
 ARG HERMES_SOURCE_CACHE_BUST=0
 
 COPY --from=node /usr/local /usr/local
@@ -28,13 +28,13 @@ RUN test -n "${HERMES_GIT_REF}" \
   && printf 'HERMES_GIT_REF=%s\nHERMES_SOURCE_CACHE_BUST=%s\n' "${HERMES_GIT_REF}" "${HERMES_SOURCE_CACHE_BUST}" > /opt/hermes-agent/.railway-build-info
 
 COPY patches/ /tmp/hermes-patches/
-RUN for patch in /tmp/hermes-patches/*.patch; do git -C /opt/hermes-agent apply --unidiff-zero "$patch"; done
+RUN sh -c 'set -- /tmp/hermes-patches/*.patch; if [ -f "$1" ]; then for patch in "$@"; do git -C /opt/hermes-agent apply --unidiff-zero "$patch"; done; else echo "No Hermes patches to apply"; fi'
 
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel
-RUN pip install --no-cache-dir websockets -e "/opt/hermes-agent[messaging,cron,cli,pty,web]"
+RUN pip install --no-cache-dir websockets -e "/opt/hermes-agent[messaging,cron,pty,web,wecom]"
 
 RUN cd /opt/hermes-agent/web \
   && npm ci \
@@ -59,7 +59,7 @@ RUN cd /opt/hermes-agent/ui-tui \
 
 FROM python:3.11-slim-bookworm
 
-ARG HERMES_GIT_REF=v2026.7.1
+ARG HERMES_GIT_REF=v2026.9.14
 ARG HERMES_SOURCE_CACHE_BUST=0
 
 COPY --from=node /usr/local /usr/local

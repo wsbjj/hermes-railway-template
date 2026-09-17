@@ -309,7 +309,7 @@ def platform_state() -> dict[str, bool]:
                 "WECOM_CALLBACK_ENCODING_AES_KEY",
             )
         ),
-        "weixin": is_set("WEIXIN_ACCOUNT_ID"),
+        "weixin": is_set("WEIXIN_ACCOUNT_ID") or is_set("WECHAT_ACCOUNT_ID"),
     }
 
 
@@ -415,7 +415,7 @@ def render_html(payload: dict[str, Any]) -> bytes:
 """
     translations = {
         "en": {
-            "intro": "Gateway worker is running. Chat still happens through QQ Bot, WeCom, Weixin, or other configured platforms.",
+            "intro": "Gateway worker is running. Chat still happens through QQ Bot, WeCom, WeChat/Weixin, or other configured platforms.",
             "status.online": "Online",
             "labels.service": "Railway service",
             "labels.environment": "Environment",
@@ -441,7 +441,7 @@ def render_html(payload: dict[str, Any]) -> bytes:
             "terminal.requestError": "Command request failed.",
         },
         "zh": {
-            "intro": "网关服务正在运行。聊天仍然通过 QQ Bot、企业微信、微信或其他已配置平台进行。",
+            "intro": "网关服务正在运行。聊天仍然通过 QQ Bot、企业微信、个人微信 WeChat 或其他已配置平台进行。",
             "status.online": "在线",
             "labels.service": "Railway 服务",
             "labels.environment": "环境",
@@ -631,7 +631,7 @@ def render_html(payload: dict[str, Any]) -> bytes:
     <div class="topbar">
       <div>
         <h1>Hermes Railway</h1>
-        <p data-i18n="intro">Gateway worker is running. Chat still happens through QQ Bot, WeCom, Weixin, or other configured platforms.</p>
+        <p data-i18n="intro">Gateway worker is running. Chat still happens through QQ Bot, WeCom, WeChat/Weixin, or other configured platforms.</p>
       </div>
       <div class="language-toggle" aria-label="Language">
         <button type="button" data-language-toggle="en" class="active">EN</button>

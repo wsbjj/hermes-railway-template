@@ -25,7 +25,7 @@ STATUS_PAGE_PID=""
 DASHBOARD_PID=""
 GATEWAY_PID=""
 
-mkdir -p "${HERMES_HOME}" "${HERMES_HOME}/logs" "${HERMES_HOME}/sessions" "${HERMES_HOME}/cron" "${HERMES_HOME}/pairing" "${DEFAULT_TERMINAL_CWD}"
+mkdir -p "${HERMES_HOME}" "${HERMES_HOME}/logs" "${HERMES_HOME}/sessions" "${HERMES_HOME}/cron" "${HERMES_HOME}/pairing" "${HERMES_HOME}/weixin/accounts" "${DEFAULT_TERMINAL_CWD}"
 
 is_true() {
   case "${1:-}" in
@@ -230,7 +230,7 @@ validate_platforms() {
 
   if [[ -n "${WEIXIN_ACCOUNT_ID:-}" || -n "${WEIXIN_TOKEN:-}" ]]; then
     if [[ -z "${WEIXIN_ACCOUNT_ID:-}" ]]; then
-      echo "[bootstrap] ERROR: Weixin requires WEIXIN_ACCOUNT_ID. WEIXIN_TOKEN may be supplied directly or restored from persisted QR login state." >&2
+      echo "[bootstrap] ERROR: WeChat/Weixin requires WEIXIN_ACCOUNT_ID (or WECHAT_ACCOUNT_ID). WEIXIN_TOKEN may be supplied directly or restored from persisted QR login state." >&2
       exit 1
     fi
     count=$((count + 1))
@@ -245,7 +245,7 @@ validate_platforms() {
   fi
 
   if [[ "$count" -lt 1 ]]; then
-    echo "[bootstrap] ERROR: Configure at least one platform: Telegram, Discord, Slack, WeCom, Weixin, or QQ Bot." >&2
+    echo "[bootstrap] ERROR: Configure at least one platform: Telegram, Discord, Slack, WeCom, WeChat/Weixin, or QQ Bot." >&2
     exit 1
   fi
 }
@@ -289,6 +289,42 @@ normalize_openai_base_url_value() {
     printf '%s/v1' "${value%/}"
   else
     printf '%s' "$value"
+  fi
+}
+
+copy_env_alias() {
+  local src="$1"
+  local dest="$2"
+  local src_val="${!src:-}"
+  local dest_val="${!dest:-}"
+
+  if [[ -n "$src_val" && -z "$dest_val" ]]; then
+    export "${dest}=${src_val}"
+    return 0
+  fi
+
+  return 1
+}
+
+normalize_wechat_env() {
+  local mapped=0
+
+  copy_env_alias WECHAT_ACCOUNT_ID WEIXIN_ACCOUNT_ID && mapped=1
+  copy_env_alias WECHAT_TOKEN WEIXIN_TOKEN && mapped=1
+  copy_env_alias WECHAT_BASE_URL WEIXIN_BASE_URL && mapped=1
+  copy_env_alias WECHAT_CDN_BASE_URL WEIXIN_CDN_BASE_URL && mapped=1
+  copy_env_alias WECHAT_DM_POLICY WEIXIN_DM_POLICY && mapped=1
+  copy_env_alias WECHAT_GROUP_POLICY WEIXIN_GROUP_POLICY && mapped=1
+  copy_env_alias WECHAT_ALLOWED_USERS WEIXIN_ALLOWED_USERS && mapped=1
+  copy_env_alias WECHAT_GROUP_ALLOWED_USERS WEIXIN_GROUP_ALLOWED_USERS && mapped=1
+  copy_env_alias WECHAT_ALLOW_ALL_USERS WEIXIN_ALLOW_ALL_USERS && mapped=1
+  copy_env_alias WECHAT_SPLIT_MULTILINE_MESSAGES WEIXIN_SPLIT_MULTILINE_MESSAGES && mapped=1
+  copy_env_alias WECHAT_HOME_CHANNEL WEIXIN_HOME_CHANNEL && mapped=1
+  copy_env_alias WECHAT_HOME_CHANNEL_NAME WEIXIN_HOME_CHANNEL_NAME && mapped=1
+  copy_env_alias WECHAT_HOME_CHANNEL_THREAD_ID WEIXIN_HOME_CHANNEL_THREAD_ID && mapped=1
+
+  if [[ "$mapped" -eq 1 ]]; then
+    echo "[bootstrap] Mapped WECHAT_* aliases to Hermes Weixin (WeChat iLink) variables."
   fi
 }
 
@@ -589,6 +625,7 @@ migrate_legacy_messaging_cwd() {
   fi
 }
 
+normalize_wechat_env
 normalize_provider_env
 sync_tui_runtime_env
 

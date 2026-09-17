@@ -127,6 +127,30 @@ run_runtime_env_path_case() {
   echo "runtime env PATH OK"
 }
 
+run_wechat_alias_env_case() {
+  local tmp
+  tmp="$(new_case_dir)"
+
+  PATH="$tmp/bin:$PATH" \
+    HERMES_HOME="$tmp/home/.hermes" \
+    HOME="$tmp/home" \
+    TERMINAL_CWD="$tmp/workspace" \
+    STATUS_PAGE_ENABLED=false \
+    HERMES_INFERENCE_PROVIDER=custom \
+    OPENAI_BASE_URL=https://api.example.com/v1 \
+    OPENAI_API_KEY=test-key \
+    WECHAT_ACCOUNT_ID=wxid_alias \
+    WECHAT_TOKEN=weixin-token \
+    WECHAT_ALLOWED_USERS=wxid_alias \
+    "$ROOT_DIR/scripts/entrypoint.sh" > "$tmp/out.txt" 2>&1
+
+  grep -q "Mapped WECHAT_\\* aliases to Hermes Weixin" "$tmp/out.txt"
+  grep -q "^WEIXIN_ACCOUNT_ID=wxid_alias$" "$tmp/home/.hermes/.env"
+  grep -q "^WEIXIN_TOKEN=weixin-token$" "$tmp/home/.hermes/.env"
+  grep -q "^WEIXIN_ALLOWED_USERS=wxid_alias$" "$tmp/home/.hermes/.env"
+  echo "WeChat alias env mapping OK"
+}
+
 run_existing_model_config_sync_case() {
   local tmp
   tmp="$(new_case_dir)"
@@ -1017,16 +1041,41 @@ run_dashboard_only_case() {
 run_dockerfile_tui_prebuild_case() {
   grep -q "ui-tui" "$ROOT_DIR/Dockerfile"
   grep -q "hermes_cli/tui_dist" "$ROOT_DIR/Dockerfile"
-  grep -q "/tmp/hermes-patches/.*\\.patch" "$ROOT_DIR/Dockerfile"
-  grep -q "allow_public" "$ROOT_DIR/patches/hermes-dashboard-insecure-public-ws.patch"
-  test -f "$ROOT_DIR/patches/hermes-media-md-attachments.patch"
-  grep -q "requested attachment" "$ROOT_DIR/patches/hermes-media-md-attachments.patch"
-  grep -q "is_reconnect" "$ROOT_DIR/patches/hermes-qqbot-connect-reconnect.patch"
-  grep -q "_env_ref_name" "$ROOT_DIR/patches/hermes-mcp-env-ref-name.patch"
+  grep -q 'HERMES_GIT_REF=v2026.9.14' "$ROOT_DIR/Dockerfile"
+  grep -q 'node:26-bookworm-slim' "$ROOT_DIR/Dockerfile"
+  grep -q '\[messaging,cron,pty,web,wecom\]' "$ROOT_DIR/Dockerfile"
+  grep -q "No Hermes patches to apply" "$ROOT_DIR/Dockerfile"
+  test -f "$ROOT_DIR/patches/.gitkeep"
+  test ! -f "$ROOT_DIR/patches/hermes-dashboard-insecure-public-ws.patch"
+  test ! -f "$ROOT_DIR/patches/hermes-media-md-attachments.patch"
+  test ! -f "$ROOT_DIR/patches/hermes-qqbot-connect-reconnect.patch"
+  test ! -f "$ROOT_DIR/patches/hermes-mcp-env-ref-name.patch"
   grep -q "procps" "$ROOT_DIR/Dockerfile"
   grep -q "tzdata" "$ROOT_DIR/Dockerfile"
   grep -q "xterm.js" "$ROOT_DIR/Dockerfile"
   echo "Dockerfile TUI prebuild OK"
+}
+
+run_removed_infini_provider_case() {
+  if grep -R -I -n -E '无问芯穹|cloud\.infini-ai\.com|INFINI_AI_API_KEY' \
+    "$ROOT_DIR/README.md" \
+    "$ROOT_DIR/Dockerfile" \
+    "$ROOT_DIR/scripts/entrypoint.sh" \
+    "$ROOT_DIR/scripts/status_server.py" \
+    "$ROOT_DIR/examples"; then
+    echo "Deprecated Infini-AI / 无问芯穹 references must be removed" >&2
+    exit 1
+  fi
+  echo "Removed Infini-AI provider OK"
+}
+
+run_wechat_docs_case() {
+  grep -q "v0.21.3 / v2026.9.14" "$ROOT_DIR/README.md"
+  grep -q "WECHAT_ACCOUNT_ID" "$ROOT_DIR/README.md"
+  grep -q "iLink Bot API" "$ROOT_DIR/README.md"
+  grep -q "WEIXIN_ACCOUNT_ID" "$ROOT_DIR/examples/railway.wechat-custom.env"
+  grep -q "WEIXIN_TOKEN" "$ROOT_DIR/examples/railway.wechat-custom.env"
+  echo "WeChat bot docs OK"
 }
 
 run_railway_update_template_case() {
@@ -1058,6 +1107,8 @@ run_config_case "model config from Railway variables" env \
   QQ_ALLOWED_USERS=openid_a
 
 run_runtime_env_path_case
+
+run_wechat_alias_env_case
 
 run_existing_model_config_sync_case
 
@@ -1091,7 +1142,22 @@ run_success "Weixin custom endpoint" env \
   OPENAI_BASE_URL=https://api.example.com/v1 \
   OPENAI_API_KEY=test-key \
   WEIXIN_ACCOUNT_ID=wxid_a \
+  WEIXIN_TOKEN=weixin-token \
   WEIXIN_ALLOWED_USERS=wxid_a
+
+run_success "WeChat alias custom endpoint" env \
+  HERMES_INFERENCE_PROVIDER=custom \
+  OPENAI_BASE_URL=https://api.example.com/v1 \
+  OPENAI_API_KEY=test-key \
+  WECHAT_ACCOUNT_ID=wxid_a \
+  WECHAT_TOKEN=weixin-token \
+  WECHAT_ALLOWED_USERS=wxid_a
+
+run_failure "WeChat missing account" "WeChat/Weixin requires WEIXIN_ACCOUNT_ID" env \
+  HERMES_INFERENCE_PROVIDER=custom \
+  OPENAI_BASE_URL=https://api.example.com/v1 \
+  OPENAI_API_KEY=test-key \
+  WECHAT_TOKEN=weixin-token
 
 run_failure "custom endpoint without key" "Custom/OpenAI-compatible endpoints require" env \
   HERMES_INFERENCE_PROVIDER=custom \
@@ -1134,5 +1200,9 @@ run_dashboard_rebuild_case
 run_dashboard_only_case
 
 run_dockerfile_tui_prebuild_case
+
+run_removed_infini_provider_case
+
+run_wechat_docs_case
 
 run_railway_update_template_case

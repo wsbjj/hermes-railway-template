@@ -2,7 +2,7 @@
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/soothing-eagerness?utm_medium=integration&utm_source=template&utm_campaign=generic)
 
-把 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 部署到 Railway 的一键模板。当前模板默认使用 `Hermes Agent v0.18.0 / v2026.7.1`，适合把 Hermes 作为长期在线的聊天机器人、Web Dashboard 或轻量工作台运行。
+把 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 部署到 Railway 的一键模板。当前模板默认使用 `Hermes Agent v0.21.3 / v2026.9.14`，适合把 Hermes 作为长期在线的聊天机器人、Web Dashboard 或轻量工作台运行。
 
 ## About Hosting Hermes Agent
 
@@ -14,7 +14,7 @@
 - 持久化 `/data/.hermes`，重启后保留 Hermes 配置、会话和运行时数据。
 - 内置 Web Dashboard 代理、登录页和状态页。
 - 预构建 Hermes Web UI、TUI 和浏览器终端依赖，减少冷启动时的构建工作。
-- 支持 QQ Bot、企业微信 WeCom、个人微信 Weixin、Telegram、Discord、Slack 等 Hermes gateway 平台。
+- 支持 QQ Bot、企业微信 WeCom、个人微信 WeChat/Weixin、Telegram、Discord、Slack 等 Hermes gateway 平台。
 
 ## Why Deploy Hermes Agent on Railway?
 
@@ -65,7 +65,7 @@ OPENAI_API_KEY="sk-xxx"
 下面是 QQ Bot + 自定义 OpenAI 兼容接口的最小配置。把 `OPENAI_BASE_URL` 换成你的接口地址，`HERMES_MODEL` 换成真实模型 ID。
 
 ```env
-HERMES_GIT_REF=v2026.7.1
+HERMES_GIT_REF=v2026.9.14
 HERMES_HOME=/data/.hermes
 HOME=/data
 
@@ -170,11 +170,29 @@ WECOM_SECRET=your-wecom-secret
 WECOM_ALLOWED_USERS=user_a,user_b
 ```
 
-### 个人微信 Weixin
+### 个人微信 WeChat / Weixin
+
+Hermes **官方支持**个人微信机器人。适配器名称是 Weixin，走腾讯 **iLink Bot API**，文档标题为 `Weixin (WeChat)`。这和公众号、企业微信不是同一套接口。
+
+- 支持：个人微信 iLink 机器人私聊（扫码登录后给该 bot 发 DM）。
+- 不支持：微信公众号、把普通微信号当 bot 进普通微信群。QR 登录连上的是 `...@im.bot` 身份，通常不能像普通好友一样拉进群。
+- 企业微信请用上面的 WeCom 配置。
+
+Railway 上建议先在本地或 Dashboard 终端完成一次 `hermes gateway setup`，把得到的 `account_id` 和 `token` 写进 Variables。Volume 挂到 `/data` 后，登录态会保存在 `/data/.hermes/weixin/accounts/`。
 
 ```env
 WEIXIN_ACCOUNT_ID=your-weixin-account-id
-WEIXIN_ALLOWED_USERS=wxid_a,wxid_b
+WEIXIN_TOKEN=your-weixin-bot-token
+WEIXIN_ALLOWED_USERS=user_id_a,user_id_b
+WEIXIN_DM_POLICY=allowlist
+```
+
+也接受 `WECHAT_*` 别名，入口脚本会映射到 Hermes 的 `WEIXIN_*` 变量：
+
+```env
+WECHAT_ACCOUNT_ID=your-weixin-account-id
+WECHAT_TOKEN=your-weixin-bot-token
+WECHAT_ALLOWED_USERS=user_id_a,user_id_b
 ```
 
 ### Telegram
@@ -222,7 +240,8 @@ HERMES_DASHBOARD_PROXY_PASSWORD=change-this-password
 
 - [examples/railway.qq-custom.env](examples/railway.qq-custom.env): QQ Bot + 自定义 OpenAI 兼容接口。
 - [examples/railway.wecom-custom.env](examples/railway.wecom-custom.env): 企业微信 WeCom + 自定义 OpenAI 兼容接口。
-- [examples/railway.weixin-custom.env](examples/railway.weixin-custom.env): 个人微信 Weixin + 自定义 OpenAI 兼容接口。
+- [examples/railway.wechat-custom.env](examples/railway.wechat-custom.env): 个人微信 WeChat/Weixin + 自定义 OpenAI 兼容接口。
+- [examples/railway.weixin-custom.env](examples/railway.weixin-custom.env): 与 WeChat 示例相同，使用 Hermes 官方 `WEIXIN_*` 变量名。
 - [examples/railway.qq-minimax.env](examples/railway.qq-minimax.env): QQ Bot + MiniMax 国际版。
 - [examples/railway.qq-minimax-cn.env](examples/railway.qq-minimax-cn.env): QQ Bot + MiniMax 中国区。
 - [examples/railway.dev-dashboard.env](examples/railway.dev-dashboard.env): Dashboard 调试配置。
@@ -231,7 +250,7 @@ HERMES_DASHBOARD_PROXY_PASSWORD=change-this-password
 
 | 变量 | 是否必填 | 说明 |
 | --- | --- | --- |
-| `HERMES_GIT_REF` | 建议填 | Hermes Agent tag 或 commit，当前建议 `v2026.7.1`。 |
+| `HERMES_GIT_REF` | 建议填 | Hermes Agent tag 或 commit，当前建议 `v2026.9.14`。 |
 | `HERMES_HOME` | 建议填 | Railway 上建议固定为 `/data/.hermes`。 |
 | `HOME` | 建议填 | Railway 上建议固定为 `/data`。 |
 | `HERMES_INFERENCE_PROVIDER` | 必填 | `custom`、`openrouter`、`anthropic`、`minimax`、`minimax-cn` 等。 |
@@ -244,6 +263,9 @@ HERMES_DASHBOARD_PROXY_PASSWORD=change-this-password
 | `ANTHROPIC_API_KEY` | anthropic 必填 | Anthropic key。 |
 | `MINIMAX_API_KEY` | minimax 必填 | MiniMax 国际版 key。 |
 | `MINIMAX_CN_API_KEY` | minimax-cn 必填 | MiniMax 中国区 key。 |
+| `WEIXIN_ACCOUNT_ID` | WeChat 必填 | 个人微信 iLink account ID。也可用 `WECHAT_ACCOUNT_ID`。 |
+| `WEIXIN_TOKEN` | WeChat 建议填 | iLink bot token。首次可用 `hermes gateway setup` 扫码得到。也可用 `WECHAT_TOKEN`。 |
+| `WEIXIN_ALLOWED_USERS` | WeChat 建议填 | 允许私聊的用户 ID 列表。也可用 `WECHAT_ALLOWED_USERS`。 |
 | `HERMES_DASHBOARD_PROXY_PASSWORD` | Dashboard 建议填 | 模板登录页密码。 |
 | `HERMES_GATEWAY_ENABLED` | 可选 | 设为 `false` 可关闭消息 gateway，仅保留 Dashboard。 |
 | `TERMINAL_CWD` | 可选 | Dashboard 终端默认目录，默认 `/data/workspace`。 |
@@ -280,7 +302,7 @@ docker buildx build --check .
 本地构建镜像：
 
 ```powershell
-docker build --build-arg HERMES_GIT_REF=v2026.7.1 -t hermes-railway-template .
+docker build --build-arg HERMES_GIT_REF=v2026.9.14 -t hermes-railway-template .
 ```
 
 ## 更新 Hermes 版本
@@ -288,7 +310,7 @@ docker build --build-arg HERMES_GIT_REF=v2026.7.1 -t hermes-railway-template .
 维护者可以用脚本更新 Railway 构建参数并触发从源码重建：
 
 ```powershell
-.\scripts\update-hermes-railway.ps1 -Ref v2026.7.1 -Environment dev -Service hermes-railway-template
+.\scripts\update-hermes-railway.ps1 -Ref v2026.9.14 -Environment dev -Service hermes-railway-template
 ```
 
 脚本会设置：
@@ -301,7 +323,7 @@ HERMES_SOURCE_CACHE_BUST=CACHE_BUST_VALUE
 然后执行 Railway 的 source redeploy。手动等价命令：
 
 ```powershell
-railway variable set HERMES_GIT_REF=v2026.7.1 HERMES_SOURCE_CACHE_BUST=202607061600 --service hermes-railway-template --environment dev --skip-deploys
+railway variable set HERMES_GIT_REF=v2026.9.14 HERMES_SOURCE_CACHE_BUST=202607061600 --service hermes-railway-template --environment dev --skip-deploys
 railway deployment redeploy --from-source --yes --service hermes-railway-template --environment dev
 ```
 
@@ -366,6 +388,15 @@ HERMES_DASHBOARD_PROXY_PASSWORD=change-this-password
 ```
 
 否则入口脚本会要求至少配置一个消息平台。
+
+### 个人微信扫码登录
+
+Hermes 的微信适配器需要 iLink 的 `account_id` 和 `token`。推荐两种方式：
+
+1. 在本地运行 `hermes gateway setup`，选择 Weixin，用手机微信扫码，再把得到的 `WEIXIN_ACCOUNT_ID` 和 `WEIXIN_TOKEN` 填进 Railway Variables。
+2. 先用 Dashboard-only 模式部署，打开状态页终端运行 `hermes gateway setup`，登录态会写到 `/data/.hermes/weixin/accounts/`。之后补上 `WEIXIN_ACCOUNT_ID` 并打开 gateway。
+
+必须挂载 Volume 到 `/data`，否则扫码结果会在重新部署后丢失。同一个 `WEIXIN_TOKEN` 同时只能有一个 gateway 在线。
 
 ## 相关链接
 

@@ -1,8 +1,0 @@
-diff --git a/hermes_cli/web_server.py b/hermes_cli/web_server.py
---- a/hermes_cli/web_server.py
-+++ b/hermes_cli/web_server.py
-@@ -12160,0 +12161,2 @@ def _ws_client_is_allowed(ws: "WebSocket") -> bool:
-+    if getattr(app.state, "allow_public", False):
-+        return True
-@@ -14193,0 +14196,1 @@ def start_server(
-+    app.state.allow_public = allow_public
