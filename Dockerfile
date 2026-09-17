@@ -14,6 +14,7 @@ RUN apt-get update -o Acquire::Retries=3 \
     ca-certificates \
     curl \
     git \
+    libatomic1 \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt
@@ -70,6 +71,7 @@ RUN apt-get update -o Acquire::Retries=3 \
     curl \
     git \
     gh \
+    libatomic1 \
     procps \
     tzdata \
     tini \

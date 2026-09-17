@@ -1052,6 +1052,7 @@ run_dockerfile_tui_prebuild_case() {
   test ! -f "$ROOT_DIR/patches/hermes-mcp-env-ref-name.patch"
   grep -q "procps" "$ROOT_DIR/Dockerfile"
   grep -q "tzdata" "$ROOT_DIR/Dockerfile"
+  grep -q "libatomic1" "$ROOT_DIR/Dockerfile"
   grep -q "xterm.js" "$ROOT_DIR/Dockerfile"
   echo "Dockerfile TUI prebuild OK"
 }
