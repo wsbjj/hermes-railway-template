@@ -2,6 +2,8 @@
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/soothing-eagerness?utm_medium=integration&utm_source=template&utm_campaign=generic)
 
+备用 Railway 模板入口：[hermess](https://railway.com/deploy/hermess?utm_medium=integration&utm_source=template&utm_campaign=generic)
+
 把 [Hermes Agent](https://github.com/NousResearch/hermes-agent) 部署到 Railway 的一键模板。当前模板默认使用 `Hermes Agent v0.21.3 / v2026.9.14`，适合把 Hermes 作为长期在线的聊天机器人、Web Dashboard 或轻量工作台运行。
 
 ## About Hosting Hermes Agent
